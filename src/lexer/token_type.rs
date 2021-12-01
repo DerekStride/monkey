@@ -12,6 +12,16 @@ pub enum TokenType {
     // Operators
     ASSIGN,
     PLUS,
+    MINUS,
+    BANG,
+    ASTERISK,
+    SLASH,
+
+    LT,
+    GT,
+
+    EQ,
+    NOT_EQ,
 
     // Delimiters
     COMMA,
@@ -25,12 +35,22 @@ pub enum TokenType {
     // Keywords
     FUNCTION,
     LET,
+    TRUE,
+    FALSE,
+    IF,
+    ELSE,
+    RETURN,
 }
 
 pub fn compute_keyword_map(map: &mut HashMap<&'static str, TokenType>) {
     let keywords = [
         ("fn", TokenType::FUNCTION),
         ("let", TokenType::LET),
+        ("true", TokenType::TRUE),
+        ("false", TokenType::FALSE),
+        ("if", TokenType::IF),
+        ("else", TokenType::ELSE),
+        ("return", TokenType::RETURN),
     ];
 
     for t in keywords {

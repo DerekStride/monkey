@@ -34,15 +34,36 @@ impl<I: Iterator<Item = FileByte>> Lexer<I> {
     pub fn next(&mut self) -> Result<Token> {
         self.eat_whitespace()?;
         let ch = self.ch;
-        println!("{}", ch);
 
         let tok = match ch {
-            b'=' => new_token(TokenType::ASSIGN, &[ch])?,
+            b'=' => {
+                let peeked = self.peek_char()?;
+                if peeked == b'=' {
+                    self.next_char()?;
+                    new_token(TokenType::EQ, &[ch, peeked])?
+                } else {
+                    new_token(TokenType::ASSIGN, &[ch])?
+                }
+            },
             b';' => new_token(TokenType::SEMICOLON, &[ch])?,
             b'(' => new_token(TokenType::LPAREN, &[ch])?,
             b')' => new_token(TokenType::RPAREN, &[ch])?,
             b',' => new_token(TokenType::COMMA, &[ch])?,
             b'+' => new_token(TokenType::PLUS, &[ch])?,
+            b'-' => new_token(TokenType::MINUS, &[ch])?,
+            b'*' => new_token(TokenType::ASTERISK, &[ch])?,
+            b'/' => new_token(TokenType::SLASH, &[ch])?,
+            b'<' => new_token(TokenType::LT, &[ch])?,
+            b'>' => new_token(TokenType::GT, &[ch])?,
+            b'!' => {
+                let peeked = self.peek_char()?;
+                if peeked == b'=' {
+                    self.next_char()?;
+                    new_token(TokenType::NOT_EQ, &[ch, peeked])?
+                } else {
+                    new_token(TokenType::BANG, &[ch])?
+                }
+            },
             b'{' => new_token(TokenType::LBRACE, &[ch])?,
             b'}' => new_token(TokenType::RBRACE, &[ch])?,
             0 => new_token(TokenType::EOF, &[])?,
@@ -168,8 +189,6 @@ mod tests {
     fn assert_tokens<I: Iterator<Item = FileByte>>(expected: Vec<Expected>, lex: &mut Lexer<I>) {
         for t in expected {
             let tok = lex.next().unwrap();
-            println!("{:?}: {}", t.expected_type, t.expected_literal);
-
             assert_eq!(t.expected_type, tok.token_type);
             assert_eq!(t.expected_literal, tok.literal);
         }
@@ -196,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn test_input() {
+    fn test_monkey_program() {
         let input = br###"
             let five = 5;
             let ten = 10;
@@ -245,6 +264,67 @@ mod tests {
             Expected { expected_type: TokenType::COMMA, expected_literal: ",".to_string() },
             Expected { expected_type: TokenType::IDENT, expected_literal: "ten".to_string() },
             Expected { expected_type: TokenType::RPAREN, expected_literal: ")".to_string() },
+            Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
+            Expected { expected_type: TokenType::EOF, expected_literal: "".to_string() },
+        ];
+
+        assert_tokens(tests, l);
+    }
+
+    #[test]
+    fn test_monkey_symbols() {
+        let input = br###"
+            !-/*5;
+            5 < 10 > 5;
+
+            if (5 < 10) {
+                return true;
+            } else {
+                return false;
+            }
+
+            10 == 10;
+            10 != 9;
+        "###.to_vec();
+        let l = &mut lex(input.bytes());
+
+        let tests = vec![
+            Expected { expected_type: TokenType::BANG, expected_literal: "!".to_string() },
+            Expected { expected_type: TokenType::MINUS, expected_literal: "-".to_string() },
+            Expected { expected_type: TokenType::SLASH, expected_literal: "/".to_string() },
+            Expected { expected_type: TokenType::ASTERISK, expected_literal: "*".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "5".to_string() },
+            Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "5".to_string() },
+            Expected { expected_type: TokenType::LT, expected_literal: "<".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "10".to_string() },
+            Expected { expected_type: TokenType::GT, expected_literal: ">".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "5".to_string() },
+            Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
+            Expected { expected_type: TokenType::IF, expected_literal: "if".to_string() },
+            Expected { expected_type: TokenType::LPAREN, expected_literal: "(".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "5".to_string() },
+            Expected { expected_type: TokenType::LT, expected_literal: "<".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "10".to_string() },
+            Expected { expected_type: TokenType::RPAREN, expected_literal: ")".to_string() },
+            Expected { expected_type: TokenType::LBRACE, expected_literal: "{".to_string() },
+            Expected { expected_type: TokenType::RETURN, expected_literal: "return".to_string() },
+            Expected { expected_type: TokenType::TRUE, expected_literal: "true".to_string() },
+            Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
+            Expected { expected_type: TokenType::RBRACE, expected_literal: "}".to_string() },
+            Expected { expected_type: TokenType::ELSE, expected_literal: "else".to_string() },
+            Expected { expected_type: TokenType::LBRACE, expected_literal: "{".to_string() },
+            Expected { expected_type: TokenType::RETURN, expected_literal: "return".to_string() },
+            Expected { expected_type: TokenType::FALSE, expected_literal: "false".to_string() },
+            Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
+            Expected { expected_type: TokenType::RBRACE, expected_literal: "}".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "10".to_string() },
+            Expected { expected_type: TokenType::EQ, expected_literal: "==".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "10".to_string() },
+            Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "10".to_string() },
+            Expected { expected_type: TokenType::NOT_EQ, expected_literal: "!=".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "9".to_string() },
             Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
             Expected { expected_type: TokenType::EOF, expected_literal: "".to_string() },
         ];
