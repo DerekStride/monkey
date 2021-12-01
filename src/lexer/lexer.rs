@@ -15,6 +15,18 @@ pub struct Lexer<I: Iterator<Item = FileByte>> {
     keyword_map: HashMap<&'static str, TokenType>,
 }
 
+impl<I: Iterator<Item = FileByte>> Iterator for Lexer<I> {
+    type Item = Result<Token>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.next_token() {
+            Ok(Token { token_type: TokenType::EOF, .. }) => None,
+            Ok(tok) => Some(Ok(tok)),
+            Err(e) =>  Some(Err(e)),
+        }
+    }
+}
+
 impl<I: Iterator<Item = FileByte>> Lexer<I> {
     pub fn new(mut input: Peekable<I>) -> Result<Self> {
         let ch = match input.next() {
@@ -31,7 +43,7 @@ impl<I: Iterator<Item = FileByte>> Lexer<I> {
         Ok(lex)
     }
 
-    pub fn next(&mut self) -> Result<Token> {
+    pub fn next_token(&mut self) -> Result<Token> {
         self.eat_whitespace()?;
         let ch = self.ch;
 
@@ -188,7 +200,7 @@ mod tests {
 
     fn assert_tokens<I: Iterator<Item = FileByte>>(expected: Vec<Expected>, lex: &mut Lexer<I>) {
         for t in expected {
-            let tok = lex.next().unwrap();
+            let tok = lex.next_token().unwrap();
             assert_eq!(t.expected_type, tok.token_type);
             assert_eq!(t.expected_literal, tok.literal);
         }

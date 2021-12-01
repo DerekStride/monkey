@@ -1,12 +1,15 @@
-use std::io::Read;
+use std::io;
 
 mod error;
 mod lexer;
+mod repl;
 
-use crate::lexer::lexer::Lexer;
+use crate::repl::repl::start;
+
 
 fn main() {
-    let input = b"let five = 5;".to_vec();
-    let lexer = &mut Lexer::new(input.bytes().peekable()).unwrap();
-    println!("{:?}", lexer.next());
+    let input = io::stdin();
+    let mut output = io::stdout();
+
+    start(input, &mut output).unwrap();
 }
