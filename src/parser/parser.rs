@@ -14,6 +14,7 @@ type Result<T> = std::result::Result<T, Error>;
 struct Parser<I: Iterator<Item = Result<Token>>> {
     l: Peekable<I>,
     tok: Token,
+    errors: Vec<String>,
 }
 
 impl<I: Iterator<Item = Result<Token>>> Parser<I> {
@@ -26,6 +27,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         let p = Self {
             l,
             tok,
+            errors: Vec::new(),
         };
 
         Ok(p)
@@ -95,6 +97,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
                 Err(_) => None,
             }
         } else {
+            self.peek_error(t);
             None
         }
     }
@@ -110,8 +113,21 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
                 Err(_) => false,
             }
         } else {
-            false
+            t == TokenType::EOF
         }
+    }
+
+    fn peek_error(&mut self, t: TokenType) {
+        let actual = if let Some(peeked) = self.l.peek() {
+            match peeked {
+                Ok(tok) => tok.token_type,
+                Err(_) => TokenType::ILLEGAL,
+            }
+        } else {
+            TokenType::EOF
+        };
+        let msg = format!("Expected next token to be {:?}, got {:?} instead.", t, actual);
+        self.errors.push(msg);
     }
 }
 
@@ -143,6 +159,22 @@ mod tests {
         assert_eq!(*expected_ident, let_stmt.name.value);
     }
 
+    fn check_parser_errors<I: Iterator<Item = Result<Token>>>(p: Parser<I>) -> Result<()> {
+        if p.errors.is_empty() {
+            return Ok(());
+        }
+
+        let mut msg = format!("The Parser had {} errors:\n", p.errors.len());
+
+        for e in p.errors {
+            msg.push_str(&e);
+            msg.push('\n');
+        }
+
+        Err(Error::new(msg))
+    }
+
+
     #[test]
     fn test_let_statements() -> Result<()> {
         let input = br###"
@@ -155,6 +187,7 @@ mod tests {
         let mut p = Parser::new(l.peekable())?;
 
         let program = p.parse()?;
+        check_parser_errors(p)?;
 
         assert_eq!(3, program.stmts.len());
 
@@ -176,4 +209,33 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_parser_errors() -> Result<()> {
+        let input = br###"
+            let x 5;
+            let = 10;
+            let 838383;
+        "###.to_vec();
+
+        let l = lex(input.bytes());
+        let mut p = Parser::new(l.peekable())?;
+        let program = p.parse()?;
+
+        assert_eq!(3, p.errors.len());
+
+        let tests = vec![
+            (TokenType::ASSIGN, TokenType::INT),
+            (TokenType::IDENT, TokenType::ASSIGN),
+            (TokenType::IDENT, TokenType::INT),
+        ];
+
+        for (i, err) in p.errors.iter().enumerate() {
+            let test = tests.get(i).unwrap();
+
+            let msg = format!("Expected next token to be {:?}, got {:?} instead.", test.0, test.1);
+            assert_eq!(msg, *err);
+        }
+
+        Ok(())
+    }
 }
