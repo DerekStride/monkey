@@ -1,8 +1,10 @@
 use std::io;
 
+mod parser;
 mod error;
 mod lexer;
 mod repl;
+mod ast;
 
 use crate::repl::repl::start;
 
