@@ -21,6 +21,7 @@ pub enum TokenType {
     GT,
 
     EQ,
+    #[allow(non_camel_case_types)]
     NOT_EQ,
 
     // Delimiters

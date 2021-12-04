@@ -243,7 +243,7 @@ mod tests {
 
         let l = Lexer::new(input.bytes().peekable())?;
         let mut p = Parser::new(l.peekable())?;
-        let program = p.parse()?;
+        p.parse()?;
 
         assert_eq!(3, p.errors.len());
 
