@@ -6,7 +6,7 @@ use crate::{
         token_type::TokenType,
     },
     error::Error,
-    ast::ast::*,
+    ast::*,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -157,7 +157,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast::ast::Node, lexer::lexer::Lexer};
+    use crate::{ast::Node, lexer::lexer::Lexer};
 
     use super::*;
     use std::io::{self, Read};

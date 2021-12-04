@@ -8,7 +8,6 @@ mod ast;
 
 use crate::repl::repl::start;
 
-
 fn main() {
     let input = io::stdin();
     let mut output = io::stdout();
