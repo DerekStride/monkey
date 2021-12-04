@@ -49,6 +49,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
     fn parse_statement(&mut self) -> Option<Stmt> {
         match self.tok.token_type {
             TokenType::LET => self.parse_let_statement(),
+            TokenType::RETURN => self.parse_return_statement(),
             _ => None,
         }
     }
@@ -77,6 +78,29 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
                     token,
                     name: name.clone(), // todo: remove clone when not using in value
                     value: Expr::Ident(name.clone()),
+                }
+            )
+        )
+    }
+
+    fn parse_return_statement(&mut self) -> Option<Stmt> {
+        let token = self.tok.clone();
+
+        if let Err(_) = self.next_token() {
+            return None;
+        }
+
+        while !self.curr_token_is(TokenType::SEMICOLON) {
+            if let Err(_) = self.next_token() {
+                return None;
+            };
+        }
+
+        Some(
+            Stmt::Return(
+                ReturnStatement {
+                    token,
+                    retval: Expr::Ident(Identifier { token: self.tok.clone(), value: "todo".to_string() } ),
                 }
             )
         )
@@ -144,8 +168,14 @@ mod tests {
         expected_ident: String,
     }
 
-    fn lex<I: Iterator<Item = FileByte>>(input: I) -> impl Iterator<Item = Result<Token>> {
-        Lexer::new(input.peekable()).unwrap()
+    fn parse<I: Iterator<Item = FileByte>>(input: I) -> Result<Program> {
+        let l = Lexer::new(input.peekable())?;
+        let mut p = Parser::new(l.peekable())?;
+        let program = p.parse()?;
+
+        check_parser_errors(p)?;
+
+        Ok(program)
     }
 
     fn test_let_statement(stmt: &Stmt, expected_ident: &String) {
@@ -183,12 +213,7 @@ mod tests {
             let foobar = 838383;
         "###.to_vec();
 
-        let l = lex(input.bytes());
-        let mut p = Parser::new(l.peekable())?;
-
-        let program = p.parse()?;
-        check_parser_errors(p)?;
-
+        let program = parse(input.bytes())?;
         assert_eq!(3, program.stmts.len());
 
         let tests = vec![
@@ -199,7 +224,6 @@ mod tests {
 
         for (i, t) in tests.iter().enumerate() {
             if let Some(stmt) = program.stmts.get(i) {
-                println!("{:?}", stmt);
                 test_let_statement(stmt, &t.expected_ident);
             } else {
                 panic!("Statement {} was missing", i);
@@ -217,7 +241,7 @@ mod tests {
             let 838383;
         "###.to_vec();
 
-        let l = lex(input.bytes());
+        let l = Lexer::new(input.bytes().peekable())?;
         let mut p = Parser::new(l.peekable())?;
         let program = p.parse()?;
 
@@ -234,6 +258,31 @@ mod tests {
 
             let msg = format!("Expected next token to be {:?}, got {:?} instead.", test.0, test.1);
             assert_eq!(msg, *err);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_return_statement() -> Result<()> {
+        let input = br###"
+            return 5;
+            return 10;
+            return 993322;
+        "###.to_vec();
+
+        let program = parse(input.bytes())?;
+
+        assert_eq!(3, program.stmts.len());
+
+        for stmt in program.stmts {
+            assert_eq!("return", stmt.token_literal());
+
+            if let Stmt::Return(_) = stmt {
+                continue
+            } else {
+                panic!("Statement {:?} was not a Stmt::Return.", stmt);
+            }
         }
 
         Ok(())
