@@ -183,14 +183,65 @@ impl fmt::Display for Identifier {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct IntegerLiteral {
+    pub token: Token,
+    pub value: i128,
+}
+
+impl Node for IntegerLiteral {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for IntegerLiteral {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for IntegerLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.value)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct Prefix {
+    pub token: Token,
+    pub operator: String,
+    pub right: Box<Expr>,
+}
+
+impl Node for Prefix {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for Prefix {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for Prefix {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}{})", self.operator, self.right)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub enum Expr {
     Ident(Identifier),
+    Int(IntegerLiteral),
+    Pre(Prefix),
 }
 
 impl Node for Expr {
     fn token_literal(&self) -> String {
         match self {
             Expr::Ident(x) => x.token_literal(),
+            Expr::Int(x) => x.token_literal(),
+            Expr::Pre(x) => x.token_literal(),
         }
     }
 }
@@ -199,6 +250,8 @@ impl Expression for Expr {
     fn expr_node(&self) {
         match self {
             Expr::Ident(x) => x.expr_node(),
+            Expr::Int(x) => x.expr_node(),
+            Expr::Pre(x) => x.expr_node(),
         }
     }
 }
@@ -207,6 +260,8 @@ impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Expr::Ident(x) => write!(f, "{}", x),
+            Expr::Int(x) => write!(f, "{}", x),
+            Expr::Pre(x) => write!(f, "{}", x),
         }
     }
 }
