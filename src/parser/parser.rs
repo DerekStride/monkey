@@ -5,7 +5,7 @@ use crate::{
         token::Token,
         token_type::TokenType,
     },
-    parser::priority::Priority,
+    parser::precedence::Precedence,
     error::Error,
     ast::*,
 };
@@ -18,6 +18,7 @@ struct Parser<I: Iterator<Item = Result<Token>>> {
     errors: Vec<String>,
     prefix_parse_fns: HashMap<TokenType, fn(&mut Self) -> Option<Expr>>,
     infix_parse_fns: HashMap<TokenType, fn(&mut Self, Expr) -> Option<Expr>>,
+    precedences: HashMap<TokenType, Precedence>,
 }
 
 impl<I: Iterator<Item = Result<Token>>> Parser<I> {
@@ -27,18 +28,31 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
             None => return Err(Error::new(String::from("Unexpected EOF."))),
         };
 
+        let mut precedences = HashMap::new();
+        super::precedence::compute_priority_map(&mut precedences);
+
         let mut p = Self {
             l,
             tok,
             errors: Vec::new(),
             prefix_parse_fns: HashMap::new(),
             infix_parse_fns: HashMap::new(),
+            precedences,
         };
 
         p.register_prefix(TokenType::IDENT, Self::parse_identifier);
         p.register_prefix(TokenType::INT, Self::parse_integer_literal);
         p.register_prefix(TokenType::BANG, Self::parse_prefix_expression);
         p.register_prefix(TokenType::MINUS, Self::parse_prefix_expression);
+
+        p.register_infix(TokenType::PLUS, Self::parse_infix_expression);
+        p.register_infix(TokenType::MINUS, Self::parse_infix_expression);
+        p.register_infix(TokenType::SLASH, Self::parse_infix_expression);
+        p.register_infix(TokenType::ASTERISK, Self::parse_infix_expression);
+        p.register_infix(TokenType::EQ, Self::parse_infix_expression);
+        p.register_infix(TokenType::NOT_EQ, Self::parse_infix_expression);
+        p.register_infix(TokenType::LT, Self::parse_infix_expression);
+        p.register_infix(TokenType::GT, Self::parse_infix_expression);
 
         Ok(p)
     }
@@ -118,7 +132,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
 
     fn parse_expression_statement(&mut self) -> Option<Stmt> {
         let token = self.tok.clone();
-        let expr = self.parse_expression(Priority::LOWEST)?;
+        let expr = self.parse_expression(Precedence::LOWEST)?;
 
         if self.peek_token_is(TokenType::SEMICOLON) {
             if let Err(_) = self.next_token() {
@@ -136,13 +150,35 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         )
     }
 
-    fn parse_expression(&mut self, priority: Priority) -> Option<Expr> {
-        if let Some(prefix) = self.prefix_parse_fns.get(&self.tok.token_type) {
-            prefix(self)
+    fn parse_expression(&mut self, precedence: Precedence) -> Option<Expr> {
+        let mut left = if let Some(prefix) = self.prefix_parse_fns.get(&self.tok.token_type) {
+            prefix(self)?
         } else {
             self.errors.push(format!("Prefix parse function for {:?} not found.", self.tok.token_type));
-            None
+            return None;
+        };
+
+        while !self.peek_token_is(TokenType::SEMICOLON) && precedence < self.peek_precedence() {
+            let peeked = match self.l.peek() {
+                Some(p) => match p {
+                    Ok(tok) => tok.clone(),
+                    Err(_) => return Some(left),
+                },
+                None => return Some(left),
+            };
+            if let Err(_) = self.next_token() {
+                return Some(left);
+            };
+            let infix = if let Some(func) = self.infix_parse_fns.get(&peeked.token_type) {
+                func
+            } else {
+                return Some(left);
+            };
+
+            left = infix(self, left)?;
         }
+
+        Some(left)
     }
 
     fn parse_identifier(&mut self) -> Option<Expr> {
@@ -183,12 +219,35 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
             return None;
         };
 
-        let right = self.parse_expression(Priority::PREFIX)?;
+        let right = self.parse_expression(Precedence::PREFIX)?;
 
         Some(
             Expr::Pre(
                 Prefix {
                     token,
+                    operator,
+                    right: Box::new(right),
+                }
+            )
+        )
+    }
+
+    fn parse_infix_expression(&mut self, left: Expr) -> Option<Expr> {
+        let token = self.tok.clone();
+        let operator = token.literal.clone();
+        let precedence = self.curr_precedence();
+
+        if let Err(_) = self.next_token() {
+            return None;
+        };
+
+        let right = self.parse_expression(precedence)?;
+
+        Some(
+            Expr::In(
+                Infix {
+                    token,
+                    left: Box::new(left),
                     operator,
                     right: Box::new(right),
                 }
@@ -242,6 +301,25 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         };
         let msg = format!("Expected next token to be {:?}, got {:?} instead.", t, actual);
         self.errors.push(msg);
+    }
+
+    fn peek_precedence(&mut self) -> Precedence {
+        if let Some(peeked) = self.l.peek() {
+            if let Ok(tok) = peeked {
+                if let Some(&p) = self.precedences.get(&tok.token_type) {
+                    return p;
+                }
+            }
+        }
+        Precedence::LOWEST
+    }
+
+    fn curr_precedence(&mut self) -> Precedence {
+        if let Some(&p) = self.precedences.get(&self.tok.token_type) {
+            p
+        } else {
+            Precedence::LOWEST
+        }
     }
 
     fn register_prefix(&mut self, tt: TokenType, func: fn(&mut Self) -> Option<Expr>) {
@@ -453,7 +531,6 @@ mod tests {
         let tests = vec![
             PrefixTest { input: "!5;".to_string(), operator: "!".to_string(), int_value: 5 },
             PrefixTest { input: "-15;".to_string(), operator: "-".to_string(), int_value: 15 },
-
         ];
 
         for tt in tests {
@@ -476,6 +553,69 @@ mod tests {
 
             test_integer_literal(tt.int_value, &expr.right)?;
         };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_infix_expressions() -> Result<()> {
+        let tests = vec![
+            ("5 + 5;".to_string(), 5, "+".to_string(), 5),
+            ("5 - 5;".to_string(), 5, "-".to_string(), 5),
+            ("5 * 5;".to_string(), 5, "*".to_string(), 5),
+            ("5 / 5;".to_string(), 5, "/".to_string(), 5),
+            ("5 > 5;".to_string(), 5, ">".to_string(), 5),
+            ("5 < 5;".to_string(), 5, "<".to_string(), 5),
+            ("5 == 5;".to_string(), 5, "==".to_string(), 5),
+            ("5 != 5;".to_string(), 5, "!=".to_string(), 5),
+        ];
+
+        for tt in tests {
+            let program = parse(tt.0.into_bytes().bytes())?;
+            assert_eq!(1, program.stmts.len());
+
+            let stmt = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
+                x
+            } else {
+                panic!("Program statement was not an expression statement.");
+            };
+
+            let expr = if let Expr::In(x) = &stmt.expr {
+                x
+            } else {
+                panic!("Expression `{}` was not an infix expression.", stmt.expr);
+            };
+
+            assert_eq!(tt.2, expr.operator);
+
+            test_integer_literal(tt.1, &expr.left)?;
+            test_integer_literal(tt.3, &expr.right)?;
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_operator_precedence_parsing() -> Result<()> {
+        let tests = vec![
+            ("-a * b".to_string(), "((-a) * b)".to_string()),
+            ("!-a".to_string(), "(!(-a))".to_string()),
+            ("a + b + c".to_string(), "((a + b) + c)".to_string()),
+            ("a + b - c".to_string(), "((a + b) - c)".to_string()),
+            ("a * b * c".to_string(), "((a * b) * c)".to_string()),
+            ("a * b / c".to_string(), "((a * b) / c)".to_string()),
+            ("a + b / c".to_string(), "(a + (b / c))".to_string()),
+            ("a + b * c + d / e - f".to_string(), "(((a + (b * c)) + (d / e)) - f)".to_string()),
+            ("3 + 4; -5 * 5".to_string(), "(3 + 4)((-5) * 5)".to_string()),
+            ("5 > 4 == 3 < 4".to_string(), "((5 > 4) == (3 < 4))".to_string()),
+            ("5 < 4 != 3 > 4".to_string(), "((5 < 4) != (3 > 4))".to_string()),
+            ("3 + 4 * 5 == 3 * 1 + 4 * 5".to_string(), "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))".to_string()),
+        ];
+
+        for tt in tests {
+            let program = parse(tt.0.as_bytes().bytes())?;
+            assert_eq!(tt.1, format!("{}", program));
+        }
 
         Ok(())
     }

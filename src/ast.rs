@@ -230,10 +230,36 @@ impl fmt::Display for Prefix {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct Infix {
+    pub token: Token,
+    pub left: Box<Expr>,
+    pub operator: String,
+    pub right: Box<Expr>,
+}
+
+impl Node for Infix {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for Infix {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for Infix {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({} {} {})", self.left, self.operator, self.right)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub enum Expr {
     Ident(Identifier),
     Int(IntegerLiteral),
     Pre(Prefix),
+    In(Infix),
 }
 
 impl Node for Expr {
@@ -242,6 +268,7 @@ impl Node for Expr {
             Expr::Ident(x) => x.token_literal(),
             Expr::Int(x) => x.token_literal(),
             Expr::Pre(x) => x.token_literal(),
+            Expr::In(x) => x.token_literal(),
         }
     }
 }
@@ -252,6 +279,7 @@ impl Expression for Expr {
             Expr::Ident(x) => x.expr_node(),
             Expr::Int(x) => x.expr_node(),
             Expr::Pre(x) => x.expr_node(),
+            Expr::In(x) => x.expr_node(),
         }
     }
 }
@@ -262,6 +290,7 @@ impl fmt::Display for Expr {
             Expr::Ident(x) => write!(f, "{}", x),
             Expr::Int(x) => write!(f, "{}", x),
             Expr::Pre(x) => write!(f, "{}", x),
+            Expr::In(x) => write!(f, "{}", x),
         }
     }
 }
