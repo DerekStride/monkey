@@ -23,6 +23,7 @@ pub fn compute_priority_map(map: &mut HashMap<TokenType, Precedence>) {
         (TokenType::MINUS,    Precedence::SUM),
         (TokenType::SLASH,    Precedence::PRODUCT),
         (TokenType::ASTERISK, Precedence::PRODUCT),
+        (TokenType::LPAREN,   Precedence::CALL),
     ];
 
     for t in precedences {

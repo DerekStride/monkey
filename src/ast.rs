@@ -92,6 +92,32 @@ impl fmt::Display for ReturnStatement {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct BlockStatement {
+    pub token: Token,
+    pub stmts: Vec<Stmt>,
+}
+
+impl Node for BlockStatement {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Statement for BlockStatement {
+    fn stmt_node(&self) {
+    }
+}
+
+impl fmt::Display for BlockStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for stmt in &self.stmts {
+            write!(f, "{}", stmt)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct ExpressionStatement {
     pub token: Token,
     pub expr: Expr,
@@ -118,6 +144,7 @@ impl fmt::Display for ExpressionStatement {
 pub enum Stmt {
     Let(LetStatement),
     Return(ReturnStatement),
+    Block(BlockStatement),
     Expression(ExpressionStatement),
 }
 
@@ -126,6 +153,7 @@ impl Node for Stmt {
         match self {
             Stmt::Let(x) => x.token_literal(),
             Stmt::Return(x) => x.token_literal(),
+            Stmt::Block(x) => x.token_literal(),
             Stmt::Expression(x) => x.token_literal(),
         }
     }
@@ -136,6 +164,7 @@ impl Statement for Stmt {
         match self {
             Stmt::Let(x) => x.stmt_node(),
             Stmt::Return(x) => x.stmt_node(),
+            Stmt::Block(x) => x.stmt_node(),
             Stmt::Expression(x) => x.stmt_node(),
         }
     }
@@ -146,6 +175,7 @@ impl fmt::Display for Stmt {
         match self {
             Stmt::Let(x) => write!(f, "{}", x),
             Stmt::Return(x) => write!(f, "{}", x),
+            Stmt::Block(x) => write!(f, "{}", x),
             Stmt::Expression(x) => write!(f, "{}", x),
         }
     }
@@ -229,6 +259,35 @@ impl fmt::Display for BooleanLiteral {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct IfExpression {
+    pub token: Token,
+    pub condition: Box<Expr>,
+    pub consequence: BlockStatement,
+    pub alternative: Option<BlockStatement>,
+}
+
+impl Node for IfExpression {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for IfExpression {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for IfExpression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "if {} {}", self.condition, self.consequence)?;
+        if let Some(a) = &self.alternative {
+            write!(f, "else {}", a)?;
+        };
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Prefix {
     pub token: Token,
     pub operator: String,
@@ -278,12 +337,74 @@ impl fmt::Display for Infix {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct FnLiteral {
+    pub token: Token,
+    pub params: Vec<Identifier>,
+    pub body: BlockStatement,
+}
+
+impl Node for FnLiteral {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for FnLiteral {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for FnLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}(", self.token_literal())?;
+        write!(
+            f,
+            "{}",
+            self.params.iter().map(|p| format!("{}", p)).collect::<Vec<String>>().join(", ")
+        )?;
+        write!(f, ") {}", self.body)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct FnCall {
+    pub token: Token,
+    pub function: Box<Expr>,
+    pub args: Vec<Expr>,
+}
+
+impl Node for FnCall {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for FnCall {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for FnCall {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}(", self.function)?;
+        write!(
+            f,
+            "{})",
+            self.args.iter().map(|p| format!("{}", p)).collect::<Vec<String>>().join(", ")
+        )
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub enum Expr {
     Ident(Identifier),
     Int(IntegerLiteral),
     Bool(BooleanLiteral),
     Pre(Prefix),
     In(Infix),
+    If(IfExpression),
+    Fn(FnLiteral),
+    Call(FnCall),
 }
 
 impl Node for Expr {
@@ -294,6 +415,9 @@ impl Node for Expr {
             Expr::Bool(x) => x.token_literal(),
             Expr::Pre(x) => x.token_literal(),
             Expr::In(x) => x.token_literal(),
+            Expr::If(x) => x.token_literal(),
+            Expr::Fn(x) => x.token_literal(),
+            Expr::Call(x) => x.token_literal(),
         }
     }
 }
@@ -306,6 +430,9 @@ impl Expression for Expr {
             Expr::Bool(x) => x.expr_node(),
             Expr::Pre(x) => x.expr_node(),
             Expr::In(x) => x.expr_node(),
+            Expr::If(x) => x.expr_node(),
+            Expr::Fn(x) => x.expr_node(),
+            Expr::Call(x) => x.expr_node(),
         }
     }
 }
@@ -318,6 +445,9 @@ impl fmt::Display for Expr {
             Expr::Bool(x) => write!(f, "{}", x),
             Expr::Pre(x) => write!(f, "{}", x),
             Expr::In(x) => write!(f, "{}", x),
+            Expr::If(x) => write!(f, "{}", x),
+            Expr::Fn(x) => write!(f, "{}", x),
+            Expr::Call(x) => write!(f, "{}", x),
         }
     }
 }
