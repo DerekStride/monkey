@@ -42,8 +42,11 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
 
         p.register_prefix(TokenType::IDENT, Self::parse_identifier);
         p.register_prefix(TokenType::INT, Self::parse_integer_literal);
+        p.register_prefix(TokenType::TRUE, Self::parse_boolean);
+        p.register_prefix(TokenType::FALSE, Self::parse_boolean);
         p.register_prefix(TokenType::BANG, Self::parse_prefix_expression);
         p.register_prefix(TokenType::MINUS, Self::parse_prefix_expression);
+        p.register_prefix(TokenType::LPAREN, Self::parse_grouped_expression);
 
         p.register_infix(TokenType::PLUS, Self::parse_infix_expression);
         p.register_infix(TokenType::MINUS, Self::parse_infix_expression);
@@ -209,6 +212,29 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
                 }
             )
         )
+    }
+
+    fn parse_boolean(&mut self) -> Option<Expr> {
+        Some(
+            Expr::Bool(
+                BooleanLiteral {
+                    token: self.tok.clone(),
+                    value: self.curr_token_is(TokenType::TRUE),
+                }
+            )
+        )
+    }
+
+    fn parse_grouped_expression(&mut self) -> Option<Expr> {
+        if let Err(_) = self.next_token() {
+            return None;
+        };
+
+        let exp = self.parse_expression(Precedence::LOWEST);
+
+        self.expect_peek(TokenType::RPAREN)?;
+
+        exp
     }
 
     fn parse_prefix_expression(&mut self) -> Option<Expr> {
@@ -380,6 +406,68 @@ mod tests {
         Err(Error::new(msg))
     }
 
+    fn test_integer_literal(expected: i128, expr: &Expr) -> Result<()> {
+        if let Expr::Int(x) = expr {
+            assert_eq!(expected, x.value);
+            assert_eq!(format!("{}", expected), x.token_literal());
+            Ok(())
+        } else {
+            Err(Error::new(format!("Expression {:?} was not an Integer literal.", expr)))
+        }
+    }
+
+    fn test_identifier(expected: &String, expr: &Expr) -> Result<()> {
+        if let Expr::Ident(x) = expr {
+            assert_eq!(*expected, x.value);
+            assert_eq!(*expected, x.token_literal());
+            Ok(())
+        } else {
+            Err(Error::new(format!("Expression {:?} was not an identifier.", expr)))
+        }
+    }
+
+    fn test_boolean(expected: bool, expr: &Expr) -> Result<()> {
+        if let Expr::Bool(x) = expr {
+            assert_eq!(expected, x.value);
+            assert_eq!(format!("{}", expected), x.token_literal());
+            Ok(())
+        } else {
+            Err(Error::new(format!("Expression {:?} was not a boolean.", expr)))
+        }
+    }
+
+    fn test_literal_expression(expected: &Expr, expr: &Expr) -> Result<()> {
+        match expected {
+            Expr::Int(x) => test_integer_literal(x.value, expr),
+            Expr::Ident(x) => test_identifier(&x.value, expr),
+            Expr::Bool(x) => test_boolean(x.value, expr),
+            _ => Err(Error::new(format!("Expression {:?} is not a literal expression.", expected)))
+        }
+    }
+
+    fn test_infix_expression(actual: &Infix, left: &Expr, operator: String, right: &Expr) -> Result<()> {
+        test_literal_expression(left, &actual.left)?;
+        assert_eq!(operator, actual.operator);
+        test_literal_expression(right, &actual.right)
+    }
+
+    fn i_to_expr(i: i128) -> Expr {
+        Expr::Int(
+            IntegerLiteral {
+                token: Token { literal: format!("{}", i), token_type: TokenType::INT },
+                value: i,
+            }
+        )
+    }
+
+    fn b_to_expr(i: bool) -> Expr {
+        Expr::Bool(
+            BooleanLiteral {
+                token: Token { literal: format!("{}", i), token_type: if i { TokenType::TRUE } else { TokenType::FALSE } },
+                value: i,
+            }
+        )
+    }
 
     #[test]
     fn test_let_statements() -> Result<()> {
@@ -478,26 +566,7 @@ mod tests {
             panic!("Program statement was not an expression statement.");
         };
 
-        let expr = if let Expr::Ident(x) = &stmt.expr {
-           x
-        } else {
-            panic!("Expression was not an identifier.");
-        };
-
-        assert_eq!("foobar", expr.value);
-        assert_eq!("foobar", expr.token_literal());
-
-        Ok(())
-    }
-
-    fn test_integer_literal(expected: i128, expr: &Expr) -> Result<()> {
-        if let Expr::Int(x) = expr {
-            assert_eq!(expected, x.value);
-            assert_eq!(format!("{}", expected), x.token_literal());
-            Ok(())
-        } else {
-            Err(Error::new(format!("Expression {:?} was not an Integer literal.", expr)))
-        }
+        test_identifier(&"foobar".to_string(), &stmt.expr)
     }
 
     #[test]
@@ -520,54 +589,38 @@ mod tests {
         Ok(())
     }
 
-    struct PrefixTest {
-        input: String,
-        operator: String,
-        int_value: i128,
-    }
-
     #[test]
-    fn test_parsing_prefix_expressions() -> Result<()> {
-        let tests = vec![
-            PrefixTest { input: "!5;".to_string(), operator: "!".to_string(), int_value: 5 },
-            PrefixTest { input: "-15;".to_string(), operator: "-".to_string(), int_value: 15 },
-        ];
+    fn test_boolean_expressions() -> Result<()> {
+        let input = br###"
+            true;
+            false;
+        "###.to_vec();
 
-        for tt in tests {
-            let program = parse(tt.input.into_bytes().bytes())?;
-            assert_eq!(1, program.stmts.len());
+        let program = parse(input.bytes())?;
+        assert_eq!(2, program.stmts.len());
 
-            let stmt = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
-                x
-            } else {
-                panic!("Program statement was not an expression statement.");
-            };
+        if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
+            test_boolean(true, &x.expr)?;
+        } else {
+            panic!("Program statement was not a boolean statement.");
+        };
 
-            let expr = if let Expr::Pre(x) = &stmt.expr {
-                x
-            } else {
-                panic!("Expression `{}` was not a Prefix expression.", stmt.expr);
-            };
-
-            assert_eq!(tt.operator, expr.operator);
-
-            test_integer_literal(tt.int_value, &expr.right)?;
+        if let Stmt::Expression(x) = program.stmts.get(1).unwrap() {
+            test_boolean(false, &x.expr)?;
+        } else {
+            panic!("Program statement was not a boolean statement.");
         };
 
         Ok(())
     }
 
     #[test]
-    fn test_parsing_infix_expressions() -> Result<()> {
+    fn test_parsing_prefix_expressions() -> Result<()> {
         let tests = vec![
-            ("5 + 5;".to_string(), 5, "+".to_string(), 5),
-            ("5 - 5;".to_string(), 5, "-".to_string(), 5),
-            ("5 * 5;".to_string(), 5, "*".to_string(), 5),
-            ("5 / 5;".to_string(), 5, "/".to_string(), 5),
-            ("5 > 5;".to_string(), 5, ">".to_string(), 5),
-            ("5 < 5;".to_string(), 5, "<".to_string(), 5),
-            ("5 == 5;".to_string(), 5, "==".to_string(), 5),
-            ("5 != 5;".to_string(), 5, "!=".to_string(), 5),
+            ("!5;".to_string(), "!".to_string(), i_to_expr(5)),
+            ("-15;".to_string(), "-".to_string(), i_to_expr(15)),
+            ("!true;".to_string(), "!".to_string(), b_to_expr(true)),
+            ("!false;".to_string(), "!".to_string(), b_to_expr(false)),
         ];
 
         for tt in tests {
@@ -580,16 +633,48 @@ mod tests {
                 panic!("Program statement was not an expression statement.");
             };
 
-            let expr = if let Expr::In(x) = &stmt.expr {
+            if let Expr::Pre(expr) = &stmt.expr {
+                assert_eq!(tt.1, expr.operator);
+                test_literal_expression(&tt.2, &expr.right)?;
+            } else {
+                panic!("Expression `{}` was not a Prefix expression.", stmt.expr);
+            };
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_infix_expressions() -> Result<()> {
+        let tests = vec![
+            ("5 + 5;".to_string(), i_to_expr(5), "+".to_string(), i_to_expr(5)),
+            ("5 - 5;".to_string(), i_to_expr(5), "-".to_string(), i_to_expr(5)),
+            ("5 * 5;".to_string(), i_to_expr(5), "*".to_string(), i_to_expr(5)),
+            ("5 / 5;".to_string(), i_to_expr(5), "/".to_string(), i_to_expr(5)),
+            ("5 > 5;".to_string(), i_to_expr(5), ">".to_string(), i_to_expr(5)),
+            ("5 < 5;".to_string(), i_to_expr(5), "<".to_string(), i_to_expr(5)),
+            ("5 == 5;".to_string(), i_to_expr(5), "==".to_string(), i_to_expr(5)),
+            ("5 != 5;".to_string(), i_to_expr(5), "!=".to_string(), i_to_expr(5)),
+            ("true == true".to_string(), b_to_expr(true), "==".to_string(), b_to_expr(true)),
+            ("true != false".to_string(), b_to_expr(true), "!=".to_string(), b_to_expr(false)),
+            ("false == false".to_string(), b_to_expr(false), "==".to_string(), b_to_expr(false)),
+        ];
+
+        for tt in tests {
+            let program = parse(tt.0.into_bytes().bytes())?;
+            assert_eq!(1, program.stmts.len());
+
+            let stmt = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
                 x
+            } else {
+                panic!("Program statement was not an expression statement.");
+            };
+
+            if let Expr::In(x) = &stmt.expr {
+                test_infix_expression(x, &tt.1, tt.2, &tt.3)?;
             } else {
                 panic!("Expression `{}` was not an infix expression.", stmt.expr);
             };
-
-            assert_eq!(tt.2, expr.operator);
-
-            test_integer_literal(tt.1, &expr.left)?;
-            test_integer_literal(tt.3, &expr.right)?;
         };
 
         Ok(())
@@ -610,6 +695,15 @@ mod tests {
             ("5 > 4 == 3 < 4".to_string(), "((5 > 4) == (3 < 4))".to_string()),
             ("5 < 4 != 3 > 4".to_string(), "((5 < 4) != (3 > 4))".to_string()),
             ("3 + 4 * 5 == 3 * 1 + 4 * 5".to_string(), "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))".to_string()),
+            ("true".to_string(), "true".to_string()),
+            ("false".to_string(), "false".to_string()),
+            ("3 > 5 == false".to_string(), "((3 > 5) == false)".to_string()),
+            ("3 < 5 == true".to_string(), "((3 < 5) == true)".to_string()),
+            ("1 + (2 + 3) + 4".to_string(), "((1 + (2 + 3)) + 4)".to_string()),
+            ("(5 + 5) * 2".to_string(), "((5 + 5) * 2)".to_string()),
+            ("2 / (5 + 5)".to_string(), "(2 / (5 + 5))".to_string()),
+            ("-(5 + 5)".to_string(), "(-(5 + 5))".to_string()),
+            ("!(true == true)".to_string(), "(!(true == true))".to_string()),
         ];
 
         for tt in tests {
