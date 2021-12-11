@@ -6,6 +6,10 @@ use crate::{
 
 type Result<T> = std::result::Result<T, Error>;
 
+const TRUE: MObject = MObject::Bool(Boolean { value: true });
+const FALSE: MObject = MObject::Bool(Boolean { value: false });
+const NULL: MObject = MObject::Null;
+
 pub fn eval(node: MNode) -> Result<MObject> {
     match node {
         MNode::Prog(x) => {
@@ -20,6 +24,11 @@ pub fn eval(node: MNode) -> Result<MObject> {
         MNode::Expr(expr) => {
             match expr {
                 Expr::Int(i) => Ok(MObject::Int(Integer { value: i.value })),
+                Expr::Bool(b) => Ok(if b.value { TRUE } else { FALSE }),
+                Expr::Pre(prefix) => {
+                    let right = eval(MNode::Expr(*prefix.right))?;
+                    eval_prefix_expression(prefix.operator, right)
+                },
                 _ => Err(Error::new(format!("Expr: {:?} is not supported yet.", expr)))
             }
         },
@@ -39,6 +48,31 @@ fn eval_statements(stmts: Vec<Stmt>) -> Result<MObject> {
     }
 
     result
+}
+
+fn eval_prefix_expression(op: String, obj: MObject) -> Result<MObject> {
+    match op.as_str() {
+        "!" => Ok(eval_bang_operator_expression(obj)),
+        "-" => Ok(eval_minus_prefix_operator_expression(obj)),
+        _ => Ok(NULL),
+    }
+}
+
+fn eval_bang_operator_expression(obj: MObject) -> MObject {
+    match obj {
+        TRUE => FALSE,
+        FALSE => TRUE,
+        NULL => TRUE,
+        _ => FALSE,
+    }
+}
+
+fn eval_minus_prefix_operator_expression(obj: MObject) -> MObject {
+    if let MObject::Int(m_int) = obj {
+        MObject::Int(Integer { value: -m_int.value })
+    } else {
+        NULL
+    }
 }
 
 #[cfg(test)]
@@ -87,16 +121,61 @@ mod tests {
         }
     }
 
+    fn test_boolean_obj(expected: bool, actual: MObject) -> Result<()> {
+        if let MObject::Bool(m_bool) = actual {
+            assert_eq!(expected, m_bool.value);
+            Ok(())
+        } else {
+            Err(Error::new(format!("MObject wasn't a boolean, it was {:?}.", actual)))
+        }
+    }
+
     #[test]
     fn test_eval_integer_expressions() -> Result<()> {
         let tests = vec![
             ("5".to_string(), 5),
             ("10".to_string(), 10),
+            ("-5".to_string(), -5),
+            ("-10".to_string(), -10),
         ];
 
         for tt in tests {
             let evaluated = test_eval(tt.0)?;
             test_integer_obj(tt.1, evaluated)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_eval_boolean_expressions() -> Result<()> {
+        let tests = vec![
+            ("true".to_string(), true),
+            ("false".to_string(), false),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+            test_boolean_obj(tt.1, evaluated)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bang_operator() -> Result<()> {
+        let tests = vec![
+            ("!true".to_string(), false),
+            ("!false".to_string(), true),
+            ("!5".to_string(), false),
+            ("!!true".to_string(), true),
+            ("!!false".to_string(), false),
+            ("!!5".to_string(), true),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+            test_boolean_obj(tt.1, evaluated)?;
         }
 
         Ok(())
