@@ -100,12 +100,12 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
 
         self.expect_peek(TokenType::ASSIGN)?;
 
-        if let Err(_) = self.next_token() { return None; };
+        self.ignore_next()?;
 
         let value = self.parse_expression(Precedence::LOWEST)?;
 
         if self.peek_token_is(TokenType::SEMICOLON) {
-            if let Err(_) = self.next_token() { return None; };
+            self.ignore_next()?;
         }
 
         Some(
@@ -122,14 +122,12 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
     fn parse_return_statement(&mut self) -> Option<Stmt> {
         let token = self.tok.clone();
 
-        if let Err(_) = self.next_token() {
-            return None;
-        }
+        self.ignore_next()?;
 
         let retval = self.parse_expression(Precedence::LOWEST)?;
 
         if self.peek_token_is(TokenType::SEMICOLON) {
-            if let Err(_) = self.next_token() { return None; };
+            self.ignore_next()?;
         }
 
         Some(
@@ -146,17 +144,13 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         let token = self.tok.clone();
         let mut stmts = Vec::new();
 
-        if let Err(_) = self.next_token() {
-            return None;
-        }
+        self.ignore_next()?;
 
         while !self.curr_token_is(TokenType::RBRACE) && !self.curr_token_is(TokenType::EOF) {
             if let Some(stmt) = self.parse_statement() {
                 stmts.push(stmt);
             }
-            if let Err(_) = self.next_token() {
-                return None;
-            }
+            self.ignore_next()?;
         }
 
         Some(
@@ -172,9 +166,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         let expr = self.parse_expression(Precedence::LOWEST)?;
 
         if self.peek_token_is(TokenType::SEMICOLON) {
-            if let Err(_) = self.next_token() {
-                return None;
-            };
+            self.ignore_next()?;
         }
 
         Some(
@@ -203,16 +195,13 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
                 },
                 None => return Some(left),
             };
-            if let Err(_) = self.next_token() {
-                return Some(left);
-            };
-            let infix = if let Some(func) = self.infix_parse_fns.get(&peeked.token_type) {
-                func
+            if let Err(_) = self.next_token() { return Some(left) };
+
+            left = if let Some(infix) = self.infix_parse_fns.get(&peeked.token_type) {
+                infix(self, left)?
             } else {
                 return Some(left);
             };
-
-            left = infix(self, left)?;
         }
 
         Some(left)
@@ -260,9 +249,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
     }
 
     fn parse_grouped_expression(&mut self) -> Option<Expr> {
-        if let Err(_) = self.next_token() {
-            return None;
-        };
+        self.ignore_next()?;
 
         let exp = self.parse_expression(Precedence::LOWEST);
 
@@ -275,9 +262,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         let token = self.tok.clone();
 
         self.expect_peek(TokenType::LPAREN)?;
-        if let Err(_) = self.next_token() {
-            return None;
-        };
+        self.ignore_next()?;
 
         let condition = self.parse_expression(Precedence::LOWEST)?;
 
@@ -288,10 +273,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         let mut alternative: Option<BlockStatement> = None;
 
         if self.peek_token_is(TokenType::ELSE) {
-            if let Err(_) = self.next_token() {
-                return None;
-            };
-
+            self.ignore_next()?;
             self.expect_peek(TokenType::LBRACE)?;
 
             alternative = self.parse_block_statement();
@@ -358,9 +340,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         let token = self.tok.clone();
         let operator = token.literal.clone();
 
-        if let Err(_) = self.next_token() {
-            return None;
-        };
+        self.ignore_next()?;
 
         let right = self.parse_expression(Precedence::PREFIX)?;
 
@@ -380,9 +360,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         let operator = token.literal.clone();
         let precedence = self.curr_precedence();
 
-        if let Err(_) = self.next_token() {
-            return None;
-        };
+        self.ignore_next()?;
 
         let right = self.parse_expression(precedence)?;
 
@@ -453,12 +431,16 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         Ok(())
     }
 
+    fn ignore_next(&mut self) -> Option<()> {
+        match self.next_token() {
+            Ok(_) => Some(()),
+            Err(_) => None,
+        }
+    }
+
     fn expect_peek(&mut self, t: TokenType) -> Option<()> {
         if self.peek_token_is(t) {
-            match self.next_token() {
-                Ok(_) => Some(()),
-                Err(_) => None,
-            }
+            self.ignore_next()
         } else {
             self.peek_error(t);
             None
