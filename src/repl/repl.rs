@@ -1,9 +1,11 @@
-use std::io::{Read, Write, BufRead, BufReader};
+use std::io::{self, Read, Write, BufRead, BufReader};
 
 use crate::{
+    ast,
     lexer::lexer::Lexer,
     parser::parser::Parser,
-    error::Error
+    interpreter::evaluator,
+    error::Error,
 };
 
 const PROMPT: &[u8; 4] = b">>> ";
@@ -26,18 +28,23 @@ pub fn start<I: Read, O: Write>(input: I, output: &mut O) -> Result<(), Error> {
             continue;
         };
 
-        output.write_all(format!("{}\n", program).as_bytes())?;
+        let evalutated = evaluator::eval(ast::MNode::Prog(program))?;
+
+        output.write_all(format!("{}\n", evalutated).as_bytes())?;
         output.flush()?;
         buf.clear()
     }
 }
 
-fn print_parser_errors<O: Write>(output: &mut O, errors: Vec<String>) -> Result<(), Error> {
+fn print_parser_errors<O: Write>(output: &mut O, errors: Vec<String>) -> io::Result<()> {
+    if errors.is_empty() {
+        return Ok(())
+    }
+
     output.write_all(b"Parser errors:\n")?;
     for e in errors {
         output.write_all(format!("\t{}\n", e).as_bytes())?;
     }
-    output.flush()?;
 
-    Ok(())
+    output.flush()
 }
