@@ -6,12 +6,39 @@ use crate::{
 
 type Result<T> = std::result::Result<T, Error>;
 
-// pub fn eval<N: Node>(node: N) -> Result<MObject> {
 pub fn eval(node: MNode) -> Result<MObject> {
     match node {
-        IntegerLiteral { value, .. } => Ok(MObject::Int(Integer { value })),
-        _ => Err(Error::new(format!("Node was not a valid AST, was: {}", node.token_literal()))),
+        MNode::Prog(x) => {
+            eval_statements(x.stmts)
+        },
+        MNode::Stmt(stmt) => {
+            match stmt {
+                Stmt::Expression(expr) => eval(MNode::Expr(expr.expr)),
+                _ => Err(Error::new(format!("Stmt: {:?} is not supported yet.", stmt))),
+            }
+        },
+        MNode::Expr(expr) => {
+            match expr {
+                Expr::Int(i) => Ok(MObject::Int(Integer { value: i.value })),
+                _ => Err(Error::new(format!("Expr: {:?} is not supported yet.", expr)))
+            }
+        },
     }
+}
+
+fn eval_statements(stmts: Vec<Stmt>) -> Result<MObject> {
+    let mut result = if let Some(stmt) = stmts.get(0) {
+        eval(MNode::Stmt(stmt.clone()))
+    } else {
+        return Err(Error::new("No statements in statement list.".to_string()))
+    };
+
+    for stmt in stmts.iter().skip(1) {
+        // TODO: consider taking ownership and removing the stmts from the Vec
+        result = eval(MNode::Stmt(stmt.clone()));
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -26,12 +53,12 @@ mod tests {
 
     fn test_eval(input: String) -> Result<MObject> {
         let lex = Lexer::new(input.as_bytes().bytes().peekable())?;
-        let parser = Parser::new(lex.peekable())?;
+        let mut parser = Parser::new(lex.peekable())?;
         let program = parser.parse()?;
 
         check_parser_errors(parser)?;
 
-        eval(program)
+        eval(MNode::Prog(program))
     }
 
     fn check_parser_errors<I: Iterator<Item = Result<Token>>>(p: Parser<I>) -> Result<()> {
@@ -64,7 +91,7 @@ mod tests {
     fn test_eval_integer_expressions() -> Result<()> {
         let tests = vec![
             ("5".to_string(), 5),
-            ("-10".to_string(), -10),
+            ("10".to_string(), 10),
         ];
 
         for tt in tests {

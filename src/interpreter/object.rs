@@ -1,10 +1,10 @@
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
-struct Integer {
+pub struct Integer {
     pub value: i128,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
-struct Boolean {
+pub struct Boolean {
     pub value: bool,
 }
 

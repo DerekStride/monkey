@@ -6,6 +6,7 @@ pub trait Node: fmt::Display {
     fn token_literal(&self) -> String;
 }
 
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Program {
     pub stmts: Vec<Stmt>,
 }
@@ -34,6 +35,13 @@ impl fmt::Display for Program {
         }
         Ok(())
     }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub enum MNode {
+    Prog(Program),
+    Stmt(Stmt),
+    Expr(Expr),
 }
 
 // ============================================================================
