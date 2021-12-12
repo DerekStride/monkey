@@ -24,10 +24,15 @@ pub fn eval(node: MNode) -> Result<MObject> {
         MNode::Expr(expr) => {
             match expr {
                 Expr::Int(i) => Ok(MObject::Int(Integer { value: i.value })),
-                Expr::Bool(b) => Ok(if b.value { TRUE } else { FALSE }),
+                Expr::Bool(b) => Ok(native_bool_to_boolean(b.value)),
                 Expr::Pre(prefix) => {
                     let right = eval(MNode::Expr(*prefix.right))?;
                     eval_prefix_expression(prefix.operator, right)
+                },
+                Expr::In(infix) => {
+                    let left = eval(MNode::Expr(*infix.left))?;
+                    let right = eval(MNode::Expr(*infix.right))?;
+                    eval_infix_expression(left, infix.operator, right)
                 },
                 _ => Err(Error::new(format!("Expr: {:?} is not supported yet.", expr)))
             }
@@ -73,6 +78,48 @@ fn eval_minus_prefix_operator_expression(obj: MObject) -> MObject {
     } else {
         NULL
     }
+}
+
+fn eval_infix_expression(left: MObject, op: String, right: MObject) -> Result<MObject> {
+    if let MObject::Int(left_int) = left {
+        if let MObject::Int(right_int) = right {
+            return eval_integer_infix_operator(left_int.value, op, right_int.value);
+        }
+    } else if let MObject::Bool(left_bool) = left {
+        if let MObject::Bool(right_bool) = right {
+            return eval_boolean_infix_operator(left_bool.value, op, right_bool.value);
+        }
+    }
+    Err(Error::new(format!("Left and right operands must be either both booleans or both integers, they were left: {}, op: {}, right: {}", left, op, right)))
+}
+
+fn eval_integer_infix_operator(left: i128, op: String, right: i128) -> Result<MObject> {
+    let result = match op.as_str() {
+        "+" => MObject::Int(Integer { value: left + right }),
+        "-" => MObject::Int(Integer { value: left - right }),
+        "*" => MObject::Int(Integer { value: left * right }),
+        "/" => MObject::Int(Integer { value: left / right }),
+        "<" => native_bool_to_boolean(left < right),
+        ">" => native_bool_to_boolean(left > right),
+        "==" => native_bool_to_boolean(left == right),
+        "!=" => native_bool_to_boolean(left != right),
+        _ => return Err(Error::new(format!("The operator: '{}' is not supported.", op))),
+    };
+    Ok(result)
+}
+
+fn eval_boolean_infix_operator(left: bool, op: String, right: bool) -> Result<MObject> {
+    let result = match op.as_str() {
+        "==" => native_bool_to_boolean(left == right),
+        "!=" => native_bool_to_boolean(left != right),
+        _ => return Err(Error::new(format!("The operator: '{}' is not supported.", op))),
+    };
+    Ok(result)
+}
+
+#[inline]
+fn native_bool_to_boolean(b: bool) -> MObject {
+    if b { TRUE } else { FALSE }
 }
 
 #[cfg(test)]
@@ -137,6 +184,17 @@ mod tests {
             ("10".to_string(), 10),
             ("-5".to_string(), -5),
             ("-10".to_string(), -10),
+            ("5 + 5 + 5 + 5 - 10".to_string(), 10),
+            ("2 * 2 * 2 * 2 * 2".to_string(), 32),
+            ("-50 + 100 + -50".to_string(), 0),
+            ("5 * 2 + 10".to_string(), 20),
+            ("5 + 2 * 10".to_string(), 25),
+            ("20 + 2 * -10".to_string(), 0),
+            ("50 / 2 * 2 + 10".to_string(), 60),
+            ("2 * (5 + 10)".to_string(), 30),
+            ("3 * 3 * 3 + 10".to_string(), 37),
+            ("3 * (3 * 3) + 10".to_string(), 37),
+            ("(5 + 10 * 2 + 15 / 3) * 2 + -10".to_string(), 50),
         ];
 
         for tt in tests {
@@ -152,6 +210,23 @@ mod tests {
         let tests = vec![
             ("true".to_string(), true),
             ("false".to_string(), false),
+            ("1 < 2".to_string(), true),
+            ("1 > 2".to_string(), false),
+            ("1 < 1".to_string(), false),
+            ("1 > 1".to_string(), false),
+            ("1 == 1".to_string(), true),
+            ("1 != 1".to_string(), false),
+            ("1 == 2".to_string(), false),
+            ("1 != 2".to_string(), true),
+            ("true == true".to_string(), true),
+            ("false == false".to_string(), true),
+            ("true == false".to_string(), false),
+            ("true != false".to_string(), true),
+            ("false != true".to_string(), true),
+            ("(1 < 2) == true".to_string(), true),
+            ("(1 < 2) == false".to_string(), false),
+            ("(1 > 2) == true".to_string(), false),
+            ("(1 > 2) == false".to_string(), true),
         ];
 
         for tt in tests {
