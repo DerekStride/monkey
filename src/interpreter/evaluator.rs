@@ -34,7 +34,6 @@ fn new_error(value: String) -> MObject {
     )
 }
 
-
 pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
     match node {
         MNode::Prog(x) => {
@@ -80,7 +79,33 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                 },
                 Expr::If(if_expr) => eval_if_expression(if_expr, env),
                 Expr::Ident(ident) => eval_identifier_expression(ident, env),
-                _ => Err(Error::new(format!("Expr: {:?} is not supported yet.", expr)))
+                Expr::Fn(func) => {
+                    Ok(
+                        MObject::Fn(
+                            Function {
+                                params: func.params,
+                                body: func.body,
+                                env: env.clone(),
+                            }
+                        )
+                    )
+                },
+                Expr::Call(func_call) => {
+                    let function = eval(MNode::Expr(*func_call.function), env)?;
+                    if let MObject::Err(_) = function { return Ok(function); };
+
+                    let mut args = eval_expressions(func_call.args, env)?;
+
+                    if args.len() == 1 {
+                        if let Some(value) = args.get(0) {
+                            if let MObject::Err(_) = value {
+                                return Ok(value.clone());
+                            };
+                        };
+                    };
+
+                    apply_function(function, &mut args)
+                },
             }
         },
     }
@@ -137,6 +162,57 @@ fn eval_block_statements(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObj
     }
 
     Ok(result)
+}
+
+fn eval_expressions(exprs: Vec<Expr>, env: &mut Environment) -> Result<Vec<MObject>> {
+    let mut results = Vec::new();
+
+    for expr in exprs {
+        let obj = eval(MNode::Expr(expr), env)?;
+        if let MObject::Err(_) = obj { return Ok(vec![obj]); };
+
+        results.push(obj);
+    }
+
+    Ok(results)
+}
+
+fn apply_function(obj: MObject, args: &mut Vec<MObject>) -> Result<MObject> {
+    let function = if let MObject::Fn(f) = obj {
+        f
+    } else {
+        return Ok(new_error(format!("not a function: {}", obj)));
+    };
+
+    let Function { params, body, env } = function;
+
+    let mut extended_env = match extend_function_env(params, args, env) {
+        Ok(x) => x,
+        Err(e) => return Ok(new_error(format!("{}", e))),
+    };
+
+    let evaluated = eval(MNode::Stmt(Stmt::Block(body)), &mut extended_env)?;
+
+    if let MObject::Return(retval) = evaluated {
+        Ok(*retval.value)
+    } else {
+        Ok(evaluated)
+    }
+}
+
+fn extend_function_env(params: Vec<Identifier>, args: &mut Vec<MObject>, env: Environment) -> Result<Environment> {
+    let mut env = Environment::enclose(env);
+    if params.len() != args.len() {
+        return Err(Error::new(format!("Expected {} parameters, got {}.", params.len(), args.len())));
+    };
+    args.reverse();
+
+    for param in params.iter() {
+        let arg = args.pop().unwrap();
+        env.insert(param.value.clone(), arg);
+    }
+
+    Ok(env)
 }
 
 fn eval_prefix_expression(op: String, obj: MObject) -> Result<MObject> {
@@ -457,5 +533,53 @@ mod tests {
         };
 
         Ok(())
+    }
+
+    #[test]
+    fn test_function_objects() -> Result<()> {
+        let input = "fn(x) { x + 2; };".to_string();
+        let evaluated = test_eval(input)?;
+
+        if let MObject::Fn(func) = evaluated {
+            assert_eq!(1, func.params.len());
+            assert_eq!("x", func.params.get(0).unwrap().value);
+            assert_eq!("(x + 2)", format!("{}", func.body));
+        } else {
+            panic!("Expected function, got: {}", evaluated);
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_function_application() -> Result<()> {
+        let tests = vec![
+            ("let identity = fn(x) { x; }; identity(5);".to_string(), 5),
+            ("let identity = fn(x) { return x; }; identity(5);".to_string(), 5),
+            ("let double = fn(x) { x * 2; }; double(5);".to_string(), 10),
+            ("let add = fn(x, y) { x + y; }; add(5, 5);".to_string(), 10),
+            ("let add = fn(x, y) { x + y; }; add(5 + 5, add(5, 5));".to_string(), 20),
+            ("fn(x) { x; }(5)".to_string(), 5),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+            test_integer_obj(tt.1, evaluated)?;
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_closures() -> Result<()> {
+        let input = "
+            let newAdder = fn(x) {
+                fn(y) { x + y };
+            };
+
+        let addTwo = newAdder(2);
+        addTwo(2);".to_string();
+
+        test_integer_obj(4, test_eval(input)?)
     }
 }
