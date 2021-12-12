@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, collections::HashMap};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
 pub struct Integer {
@@ -41,6 +41,27 @@ pub struct MError {
 impl fmt::Display for MError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ERROR: {}", self.value)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Environment {
+    store: HashMap<String, MObject>,
+}
+
+impl Environment {
+    pub fn new() -> Self {
+        Self {
+            store: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, key: &String) -> Option<&MObject> {
+        self.store.get(key)
+    }
+
+    pub fn insert(&mut self, key: String, value: MObject) -> Option<MObject> {
+        self.store.insert(key, value)
     }
 }
 

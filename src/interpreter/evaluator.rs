@@ -35,20 +35,28 @@ fn new_error(value: String) -> MObject {
 }
 
 
-pub fn eval(node: MNode) -> Result<MObject> {
+pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
     match node {
         MNode::Prog(x) => {
-            eval_program(x.stmts)
+            eval_program(x.stmts, env)
         },
         MNode::Stmt(stmt) => {
             match stmt {
-                Stmt::Expression(expr) => eval(MNode::Expr(expr.expr)),
-                Stmt::Block(blk_stmt) => eval_block_statements(blk_stmt.stmts),
+                Stmt::Expression(expr) => eval(MNode::Expr(expr.expr), env),
+                Stmt::Block(blk_stmt) => eval_block_statements(blk_stmt.stmts, env),
+                Stmt::Let(let_stmt) => {
+                    let value = eval(MNode::Expr(let_stmt.value), env)?;
+                    if let MObject::Err(_) = value { return Ok(value); };
+                    env.insert(let_stmt.name.value.clone(), value.clone());
+
+                    Ok(value)
+                },
                 Stmt::Return(ret) => {
-                    let val = eval(MNode::Expr(ret.retval))?;
+                    let val = eval(MNode::Expr(ret.retval), env)?;
+                    if let MObject::Err(_) = val { return Ok(val); };
+
                     Ok(MObject::Return(ReturnValue { value: Box::new(val) }))
                 },
-                _ => Err(Error::new(format!("Stmt: {:?} is not supported yet.", stmt))),
             }
         },
         MNode::Expr(expr) => {
@@ -56,24 +64,31 @@ pub fn eval(node: MNode) -> Result<MObject> {
                 Expr::Int(i) => Ok(MObject::Int(Integer { value: i.value })),
                 Expr::Bool(b) => Ok(native_bool_to_boolean(b.value)),
                 Expr::Pre(prefix) => {
-                    let right = eval(MNode::Expr(*prefix.right))?;
+                    let right = eval(MNode::Expr(*prefix.right), env)?;
+                    if let MObject::Err(_) = right { return Ok(right); };
+
                     eval_prefix_expression(prefix.operator, right)
                 },
                 Expr::In(infix) => {
-                    let left = eval(MNode::Expr(*infix.left))?;
-                    let right = eval(MNode::Expr(*infix.right))?;
+                    let left = eval(MNode::Expr(*infix.left), env)?;
+                    if let MObject::Err(_) = left { return Ok(left); };
+
+                    let right = eval(MNode::Expr(*infix.right), env)?;
+                    if let MObject::Err(_) = right { return Ok(right); };
+
                     eval_infix_expression(left, infix.operator, right)
                 },
-                Expr::If(if_expr) => eval_if_expression(if_expr),
+                Expr::If(if_expr) => eval_if_expression(if_expr, env),
+                Expr::Ident(ident) => eval_identifier_expression(ident, env),
                 _ => Err(Error::new(format!("Expr: {:?} is not supported yet.", expr)))
             }
         },
     }
 }
 
-fn eval_program(stmts: Vec<Stmt>) -> Result<MObject> {
+fn eval_program(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObject> {
     let mut result = if let Some(stmt) = stmts.get(0) {
-        eval(MNode::Stmt(stmt.clone()))?
+        eval(MNode::Stmt(stmt.clone()), env)?
     } else {
         return Err(Error::new("No statements in statement list.".to_string()))
     };
@@ -85,7 +100,7 @@ fn eval_program(stmts: Vec<Stmt>) -> Result<MObject> {
 
     for stmt in stmts.iter().skip(1) {
         // TODO: consider taking ownership and removing the stmts from the Vec
-        result = eval(MNode::Stmt(stmt.clone()))?;
+        result = eval(MNode::Stmt(stmt.clone()), env)?;
 
         if let MObject::Return(retval) = result {
             return Ok(*retval.value);
@@ -98,9 +113,9 @@ fn eval_program(stmts: Vec<Stmt>) -> Result<MObject> {
 
 }
 
-fn eval_block_statements(stmts: Vec<Stmt>) -> Result<MObject> {
+fn eval_block_statements(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObject> {
     let mut result = if let Some(stmt) = stmts.get(0) {
-        eval(MNode::Stmt(stmt.clone()))?
+        eval(MNode::Stmt(stmt.clone()), env)?
     } else {
         return Err(Error::new("No statements in statement list.".to_string()))
     };
@@ -112,7 +127,7 @@ fn eval_block_statements(stmts: Vec<Stmt>) -> Result<MObject> {
 
     for stmt in stmts.iter().skip(1) {
         // TODO: consider taking ownership and removing the stmts from the Vec
-        result = eval(MNode::Stmt(stmt.clone()))?;
+        result = eval(MNode::Stmt(stmt.clone()), env)?;
 
         if let MObject::Return(_) = result {
             return Ok(result);
@@ -186,15 +201,25 @@ fn eval_boolean_infix_operator(left: bool, op: String, right: bool) -> Result<MO
     Ok(result)
 }
 
-fn eval_if_expression(if_expr: IfExpression) -> Result<MObject> {
-    let condition = eval(MNode::Expr(*if_expr.condition))?;
+fn eval_if_expression(if_expr: IfExpression, env: &mut Environment) -> Result<MObject> {
+    let condition = eval(MNode::Expr(*if_expr.condition), env)?;
 
-    if is_truthy(condition) {
-        eval(MNode::Stmt(Stmt::Block(if_expr.consequence)))
+    if let MObject::Err(_) = condition {
+        Ok(condition)
+    } else if is_truthy(condition) {
+        eval(MNode::Stmt(Stmt::Block(if_expr.consequence)), env)
     } else if let Some(alternative) = if_expr.alternative {
-        eval(MNode::Stmt(Stmt::Block(alternative)))
+        eval(MNode::Stmt(Stmt::Block(alternative)), env)
     } else {
         Ok(NULL)
+    }
+}
+
+fn eval_identifier_expression(ident: Identifier, env: &mut Environment) -> Result<MObject> {
+    if let Some(v) = env.get(&ident.value) {
+        Ok(v.clone())
+    } else {
+        Ok(new_error(format!("identifier not found: {}", ident.value)))
     }
 }
 
@@ -214,8 +239,9 @@ mod tests {
         let program = parser.parse()?;
 
         check_parser_errors(parser)?;
+        let mut env = Environment::new();
 
-        eval(MNode::Prog(program))
+        eval(MNode::Prog(program), &mut env)
     }
 
     fn check_parser_errors<I: Iterator<Item = Result<Token>>>(p: Parser<I>) -> Result<()> {
@@ -400,6 +426,7 @@ mod tests {
 
                 return 1;
             }".to_string(), "unknown operator: true + false".to_string()),
+            ("foobar".to_string(), "identifier not found: foobar".to_string()),
         ];
 
         for tt in tests {
@@ -410,6 +437,23 @@ mod tests {
             } else {
                 panic!("Expected Error: {}, got: {}", tt.1, evaluated);
             }
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_let_statements() -> Result<()> {
+        let tests = vec![
+            ("let a = 5; a;".to_string(), 5),
+            ("let a = 5 * 5; a;".to_string(), 25),
+            ("let a = 5; let b = a; b;".to_string(), 5),
+            ("let a = 5; let b = a; let c = a + b + 5; c;".to_string(), 15),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+            test_integer_obj(tt.1, evaluated)?;
         };
 
         Ok(())

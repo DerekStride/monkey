@@ -4,7 +4,7 @@ use crate::{
     ast,
     lexer::lexer::Lexer,
     parser::parser::Parser,
-    interpreter::evaluator,
+    interpreter::{evaluator, object::Environment},
     error::Error,
 };
 
@@ -13,6 +13,7 @@ const PROMPT: &[u8; 4] = b">>> ";
 pub fn start<I: Read, O: Write>(input: I, output: &mut O) -> Result<(), Error> {
     let mut bufio = BufReader::new(input);
     let mut buf = String::new();
+    let mut env = Environment::new();
 
     loop {
         output.write_all(PROMPT)?;
@@ -28,7 +29,7 @@ pub fn start<I: Read, O: Write>(input: I, output: &mut O) -> Result<(), Error> {
             continue;
         };
 
-        let evalutated = evaluator::eval(ast::MNode::Prog(program))?;
+        let evalutated = evaluator::eval(ast::MNode::Prog(program), &mut env)?;
 
         output.write_all(format!("{}\n", evalutated).as_bytes())?;
         output.flush()?;
