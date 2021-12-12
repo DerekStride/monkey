@@ -152,6 +152,7 @@ impl fmt::Display for ExpressionStatement {
 pub enum Stmt {
     Let(LetStatement),
     Return(ReturnStatement),
+    Block(BlockStatement),
     Expression(ExpressionStatement),
 }
 
@@ -160,6 +161,7 @@ impl Node for Stmt {
         match self {
             Stmt::Let(x) => x.token_literal(),
             Stmt::Return(x) => x.token_literal(),
+            Stmt::Block(x) => x.token_literal(),
             Stmt::Expression(x) => x.token_literal(),
         }
     }
@@ -170,6 +172,7 @@ impl Statement for Stmt {
         match self {
             Stmt::Let(x) => x.stmt_node(),
             Stmt::Return(x) => x.stmt_node(),
+            Stmt::Block(x) => x.stmt_node(),
             Stmt::Expression(x) => x.stmt_node(),
         }
     }
@@ -180,6 +183,7 @@ impl fmt::Display for Stmt {
         match self {
             Stmt::Let(x) => write!(f, "{}", x),
             Stmt::Return(x) => write!(f, "{}", x),
+            Stmt::Block(x) => write!(f, "{}", x),
             Stmt::Expression(x) => write!(f, "{}", x),
         }
     }

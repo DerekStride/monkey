@@ -10,6 +10,21 @@ const TRUE: MObject = MObject::Bool(Boolean { value: true });
 const FALSE: MObject = MObject::Bool(Boolean { value: false });
 const NULL: MObject = MObject::Null;
 
+#[inline]
+fn native_bool_to_boolean(b: bool) -> MObject {
+    if b { TRUE } else { FALSE }
+}
+
+#[inline]
+fn is_truthy(o: MObject) -> bool {
+    match o {
+        TRUE => true,
+        FALSE => false,
+        NULL => false,
+        _ => true,
+    }
+}
+
 pub fn eval(node: MNode) -> Result<MObject> {
     match node {
         MNode::Prog(x) => {
@@ -18,6 +33,7 @@ pub fn eval(node: MNode) -> Result<MObject> {
         MNode::Stmt(stmt) => {
             match stmt {
                 Stmt::Expression(expr) => eval(MNode::Expr(expr.expr)),
+                Stmt::Block(blk_stmt) => eval_statements(blk_stmt.stmts),
                 _ => Err(Error::new(format!("Stmt: {:?} is not supported yet.", stmt))),
             }
         },
@@ -34,6 +50,7 @@ pub fn eval(node: MNode) -> Result<MObject> {
                     let right = eval(MNode::Expr(*infix.right))?;
                     eval_infix_expression(left, infix.operator, right)
                 },
+                Expr::If(if_expr) => eval_if_expression(if_expr),
                 _ => Err(Error::new(format!("Expr: {:?} is not supported yet.", expr)))
             }
         },
@@ -117,9 +134,16 @@ fn eval_boolean_infix_operator(left: bool, op: String, right: bool) -> Result<MO
     Ok(result)
 }
 
-#[inline]
-fn native_bool_to_boolean(b: bool) -> MObject {
-    if b { TRUE } else { FALSE }
+fn eval_if_expression(if_expr: IfExpression) -> Result<MObject> {
+    let condition = eval(MNode::Expr(*if_expr.condition))?;
+
+    if is_truthy(condition) {
+        eval(MNode::Stmt(Stmt::Block(if_expr.consequence)))
+    } else if let Some(alternative) = if_expr.alternative {
+        eval(MNode::Stmt(Stmt::Block(alternative)))
+    } else {
+        Ok(NULL)
+    }
 }
 
 #[cfg(test)]
@@ -251,6 +275,34 @@ mod tests {
         for tt in tests {
             let evaluated = test_eval(tt.0)?;
             test_boolean_obj(tt.1, evaluated)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_if_else_expressions() -> Result<()> {
+        let tests = vec![
+            ("if (true) { 10 }".to_string(), 10),
+            ("if (1) { 10 }".to_string(), 10),
+            ("if (1 < 2) { 10 }".to_string(), 10),
+            ("if (1 > 2) { 10 } else { 20 }".to_string(), 20),
+            ("if (1 < 2) { 10 } else { 20 }".to_string(), 10),
+        ];
+
+        let nil_tests = vec![
+            ("if (false) { 10 }".to_string(), NULL),
+            ("if (1 > 2) { 10 }".to_string(), NULL),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+            test_integer_obj(tt.1, evaluated)?;
+        }
+
+        for tt in nil_tests {
+            let evaluated = test_eval(tt.0)?;
+            assert_eq!(NULL, evaluated);
         }
 
         Ok(())
