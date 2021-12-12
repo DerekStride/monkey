@@ -22,10 +22,34 @@ impl fmt::Display for Boolean {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Hash)]
+pub struct ReturnValue {
+    pub value: Box<MObject>,
+}
+
+impl fmt::Display for ReturnValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.value)
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Hash)]
+pub struct MError {
+    pub value: String,
+}
+
+impl fmt::Display for MError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ERROR: {}", self.value)
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Hash)]
 pub enum MObject {
     Int(Integer),
     Bool(Boolean),
+    Return(ReturnValue),
+    Err(MError),
     Null,
 }
 
@@ -34,6 +58,8 @@ impl fmt::Display for MObject {
         match self {
             MObject::Int(x) => write!(f, "{}", x),
             MObject::Bool(x) => write!(f, "{}", x),
+            MObject::Return(x) => write!(f, "{}", x),
+            MObject::Err(x) => write!(f, "{}", x),
             MObject::Null => write!(f, "null"),
         }
     }

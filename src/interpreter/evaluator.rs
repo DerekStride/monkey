@@ -25,15 +25,29 @@ fn is_truthy(o: MObject) -> bool {
     }
 }
 
+#[inline]
+fn new_error(value: String) -> MObject {
+    MObject::Err(
+        MError {
+            value,
+        }
+    )
+}
+
+
 pub fn eval(node: MNode) -> Result<MObject> {
     match node {
         MNode::Prog(x) => {
-            eval_statements(x.stmts)
+            eval_program(x.stmts)
         },
         MNode::Stmt(stmt) => {
             match stmt {
                 Stmt::Expression(expr) => eval(MNode::Expr(expr.expr)),
-                Stmt::Block(blk_stmt) => eval_statements(blk_stmt.stmts),
+                Stmt::Block(blk_stmt) => eval_block_statements(blk_stmt.stmts),
+                Stmt::Return(ret) => {
+                    let val = eval(MNode::Expr(ret.retval))?;
+                    Ok(MObject::Return(ReturnValue { value: Box::new(val) }))
+                },
                 _ => Err(Error::new(format!("Stmt: {:?} is not supported yet.", stmt))),
             }
         },
@@ -57,19 +71,57 @@ pub fn eval(node: MNode) -> Result<MObject> {
     }
 }
 
-fn eval_statements(stmts: Vec<Stmt>) -> Result<MObject> {
+fn eval_program(stmts: Vec<Stmt>) -> Result<MObject> {
     let mut result = if let Some(stmt) = stmts.get(0) {
-        eval(MNode::Stmt(stmt.clone()))
+        eval(MNode::Stmt(stmt.clone()))?
     } else {
         return Err(Error::new("No statements in statement list.".to_string()))
+    };
+    if let MObject::Return(retval) = result {
+        return Ok(*retval.value);
+    } else if let MObject::Err(_) = result {
+        return Ok(result);
     };
 
     for stmt in stmts.iter().skip(1) {
         // TODO: consider taking ownership and removing the stmts from the Vec
-        result = eval(MNode::Stmt(stmt.clone()));
+        result = eval(MNode::Stmt(stmt.clone()))?;
+
+        if let MObject::Return(retval) = result {
+            return Ok(*retval.value);
+        } else if let MObject::Err(_) = result {
+            return Ok(result);
+        };
     }
 
-    result
+    Ok(result)
+
+}
+
+fn eval_block_statements(stmts: Vec<Stmt>) -> Result<MObject> {
+    let mut result = if let Some(stmt) = stmts.get(0) {
+        eval(MNode::Stmt(stmt.clone()))?
+    } else {
+        return Err(Error::new("No statements in statement list.".to_string()))
+    };
+    if let MObject::Return(_) = result {
+        return Ok(result);
+    } else if let MObject::Err(_) = result {
+        return Ok(result);
+    };
+
+    for stmt in stmts.iter().skip(1) {
+        // TODO: consider taking ownership and removing the stmts from the Vec
+        result = eval(MNode::Stmt(stmt.clone()))?;
+
+        if let MObject::Return(_) = result {
+            return Ok(result);
+        } else if let MObject::Err(_) = result {
+            return Ok(result);
+        };
+    }
+
+    Ok(result)
 }
 
 fn eval_prefix_expression(op: String, obj: MObject) -> Result<MObject> {
@@ -93,7 +145,7 @@ fn eval_minus_prefix_operator_expression(obj: MObject) -> MObject {
     if let MObject::Int(m_int) = obj {
         MObject::Int(Integer { value: -m_int.value })
     } else {
-        NULL
+        new_error(format!("unknown operator: -{}", obj))
     }
 }
 
@@ -107,7 +159,7 @@ fn eval_infix_expression(left: MObject, op: String, right: MObject) -> Result<MO
             return eval_boolean_infix_operator(left_bool.value, op, right_bool.value);
         }
     }
-    Err(Error::new(format!("Left and right operands must be either both booleans or both integers, they were left: {}, op: {}, right: {}", left, op, right)))
+    Ok(new_error(format!("type mismatch: {} {} {}", left, op, right)))
 }
 
 fn eval_integer_infix_operator(left: i128, op: String, right: i128) -> Result<MObject> {
@@ -120,7 +172,7 @@ fn eval_integer_infix_operator(left: i128, op: String, right: i128) -> Result<MO
         ">" => native_bool_to_boolean(left > right),
         "==" => native_bool_to_boolean(left == right),
         "!=" => native_bool_to_boolean(left != right),
-        _ => return Err(Error::new(format!("The operator: '{}' is not supported.", op))),
+        _ => new_error(format!("unknown operator: {} {} {}", left, op, right)),
     };
     Ok(result)
 }
@@ -129,7 +181,7 @@ fn eval_boolean_infix_operator(left: bool, op: String, right: bool) -> Result<MO
     let result = match op.as_str() {
         "==" => native_bool_to_boolean(left == right),
         "!=" => native_bool_to_boolean(left != right),
-        _ => return Err(Error::new(format!("The operator: '{}' is not supported.", op))),
+        _ => new_error(format!("unknown operator: {} {} {}", left, op, right)),
     };
     Ok(result)
 }
@@ -304,6 +356,61 @@ mod tests {
             let evaluated = test_eval(tt.0)?;
             assert_eq!(NULL, evaluated);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_return_statements() -> Result<()> {
+        let tests = vec![
+            ("return 10;".to_string(), 10),
+            ("return 10; 9;".to_string(), 10),
+            ("return 2 * 5; 9;".to_string(), 10),
+            ("9; return 2 * 5; 9;".to_string(), 10),
+            ("if (10 > 1) {
+                if (10 > 1) {
+                    return 10;
+                }
+
+                return 1;
+            }".to_string(), 10),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+            test_integer_obj(tt.1, evaluated)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_error_handling() -> Result<()> {
+        let tests = vec![
+            ( "5 + true;".to_string(), "type mismatch: 5 + true".to_string()),
+            ( "5 + true; 5;".to_string(), "type mismatch: 5 + true".to_string()),
+            ( "-true".to_string(), "unknown operator: -true".to_string()),
+            ( "true + false;".to_string(), "unknown operator: true + false".to_string()),
+            ( "5; true + false; 5".to_string(), "unknown operator: true + false".to_string()),
+            ( "if (10 > 1) { true + false; }".to_string(), "unknown operator: true + false".to_string()),
+            ("if (10 > 1) {
+                if (10 > 1) {
+                    return true + false;
+                }
+
+                return 1;
+            }".to_string(), "unknown operator: true + false".to_string()),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+
+            if let MObject::Err(e) = evaluated {
+                assert_eq!(tt.1, e.value);
+            } else {
+                panic!("Expected Error: {}, got: {}", tt.1, evaluated);
+            }
+        };
 
         Ok(())
     }
