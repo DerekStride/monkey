@@ -179,25 +179,27 @@ fn eval_expressions(exprs: Vec<Expr>, env: &mut Environment) -> Result<Vec<MObje
 }
 
 fn apply_function(obj: MObject, args: &mut Vec<MObject>) -> Result<MObject> {
-    let function = if let MObject::Fn(f) = obj {
-        f
+    if let MObject::Fn(f) = obj {
+        let Function { params, body, env } = f;
+
+        let mut extended_env = match extend_function_env(params, args, env) {
+            Ok(x) => x,
+            Err(e) => return Ok(new_error(format!("{}", e))),
+        };
+
+        let evaluated = eval(MNode::Stmt(Stmt::Block(body)), &mut extended_env)?;
+
+        if let MObject::Return(retval) = evaluated {
+            Ok(*retval.value)
+        } else {
+            Ok(evaluated)
+        }
+    } else if let MObject::Builtin(b) = obj {
+        match b {
+            Builtin::Len(len) => len(args),
+        }
     } else {
-        return Ok(new_error(format!("not a function: {}", obj)));
-    };
-
-    let Function { params, body, env } = function;
-
-    let mut extended_env = match extend_function_env(params, args, env) {
-        Ok(x) => x,
-        Err(e) => return Ok(new_error(format!("{}", e))),
-    };
-
-    let evaluated = eval(MNode::Stmt(Stmt::Block(body)), &mut extended_env)?;
-
-    if let MObject::Return(retval) = evaluated {
-        Ok(*retval.value)
-    } else {
-        Ok(evaluated)
+        Ok(new_error(format!("not a function: {}", obj)))
     }
 }
 
@@ -517,6 +519,8 @@ mod tests {
             }".to_string(), "unknown operator: true + false".to_string()),
             ("foobar".to_string(), "identifier not found: foobar".to_string()),
             ("\"Hello\" - \"World\"".to_string(), "unknown operator: Hello - World".to_string()),
+            ("len(1)".to_string(), "argument to 'len' not supported, got: 1".to_string()),
+            ("len(\"one\", \"two\")".to_string(), "wrong number of arguments, got: 2, want: 1".to_string()),
         ];
 
         for tt in tests {
@@ -621,6 +625,21 @@ mod tests {
         } else {
             panic!("Expected string literal, got: {}", evaluated);
         }
+
+        Ok(())
+    }
+    #[test]
+    fn test_builtin_functions() -> Result<()> {
+        let tests = vec![
+            ("len(\"\")".to_string(), 0),
+            ("len(\"four\")".to_string(), 4),
+            ("len(\"hello world\")".to_string(), 11),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+            test_integer_obj(tt.1, evaluated)?;
+        };
 
         Ok(())
     }
