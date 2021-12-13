@@ -6,6 +6,7 @@ pub enum TokenType {
     EOF,
 
     // Identifiers + literals
+    STRING,
     IDENT,
     INT,
 

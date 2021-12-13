@@ -78,6 +78,10 @@ impl<I: Iterator<Item = FileByte>> Lexer<I> {
             },
             b'{' => new_token(TokenType::LBRACE, &[ch])?,
             b'}' => new_token(TokenType::RBRACE, &[ch])?,
+            b'"' => {
+                let string_lit = self.read_string()?;
+                Token::new(TokenType::STRING, string_lit)
+            },
             0 => new_token(TokenType::EOF, &[])?,
             _ => {
                 if is_letter(ch) {
@@ -131,7 +135,7 @@ impl<I: Iterator<Item = FileByte>> Lexer<I> {
     }
 
     fn read_identifier(&mut self) -> Result<String> {
-        let ident = &mut Vec::<u8>::new();
+        let mut ident = Vec::new();
         let mut ch = self.peek_char()?;
         ident.push(self.ch);
 
@@ -141,7 +145,7 @@ impl<I: Iterator<Item = FileByte>> Lexer<I> {
             ch = self.peek_char()?;
         }
 
-        Ok(String::from_utf8(ident.to_vec())?)
+        Ok(String::from_utf8(ident)?)
     }
 
     fn read_number(&mut self) -> Result<String> {
@@ -158,6 +162,18 @@ impl<I: Iterator<Item = FileByte>> Lexer<I> {
         Ok(String::from_utf8(ident.to_vec())?)
     }
 
+    fn read_string(&mut self) -> Result<String> {
+        self.next_char()?;
+        let mut string_lit = Vec::new();
+
+        while self.ch != b'"' {
+            string_lit.push(self.ch);
+            self.next_char()?;
+        }
+
+        Ok(String::from_utf8(string_lit)?)
+    }
+
     fn lookup_ident(&mut self, ident: &str) -> TokenType {
         if self.keyword_map.is_empty() {
             super::token_type::compute_keyword_map(&mut self.keyword_map);
@@ -170,16 +186,19 @@ impl<I: Iterator<Item = FileByte>> Lexer<I> {
     }
 }
 
+#[inline]
 fn new_token(t: TokenType, literal: &[u8]) -> Result<Token> {
     Ok(Token::new(t, str::from_utf8(literal)?.to_string()))
 }
 
+#[inline]
 fn is_letter(ch: u8) -> bool {
     b'a' <= ch && ch <= b'z' ||
         b'A' <= ch && ch <= b'Z' ||
         ch == b'_'
 }
 
+#[inline]
 fn is_digit(ch: u8) -> bool {
     b'0' <= ch && ch <= b'9'
 }
@@ -297,6 +316,8 @@ mod tests {
 
             10 == 10;
             10 != 9;
+            "foobar"
+            "foo bar"
         "###.to_vec();
         let l = &mut lex(input.bytes());
 
@@ -338,6 +359,8 @@ mod tests {
             Expected { expected_type: TokenType::NOT_EQ, expected_literal: "!=".to_string() },
             Expected { expected_type: TokenType::INT, expected_literal: "9".to_string() },
             Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
+            Expected { expected_type: TokenType::STRING, expected_literal: "foobar".to_string() },
+            Expected { expected_type: TokenType::STRING, expected_literal: "foo bar".to_string() },
             Expected { expected_type: TokenType::EOF, expected_literal: "".to_string() },
         ];
 
