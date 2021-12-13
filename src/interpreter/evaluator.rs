@@ -106,6 +106,7 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
 
                     apply_function(function, &mut args)
                 },
+                _ => Err(Error::new(format!("Expression: {} not supported", expr))),
             }
         },
     }

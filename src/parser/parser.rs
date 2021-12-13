@@ -49,6 +49,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         p.register_prefix(TokenType::LPAREN, Self::parse_grouped_expression);
         p.register_prefix(TokenType::IF, Self::parse_if_expression);
         p.register_prefix(TokenType::FUNCTION, Self::parse_function_expression);
+        p.register_prefix(TokenType::STRING, Self::parse_string_expression);
 
         p.register_infix(TokenType::PLUS, Self::parse_infix_expression);
         p.register_infix(TokenType::MINUS, Self::parse_infix_expression);
@@ -331,6 +332,17 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
                     token,
                     params,
                     body,
+                }
+            )
+        )
+    }
+
+    fn parse_string_expression(&mut self) -> Option<Expr> {
+        Some(
+            Expr::Str(
+                StringLiteral {
+                    token: self.tok.clone(),
+                    value: self.tok.literal.clone(),
                 }
             )
         )
@@ -1040,6 +1052,27 @@ mod tests {
         test_literal_expression(&i_to_expr(1), call_expr.args.get(0).unwrap())?;
         test_infix_expression(call_expr.args.get(1).unwrap(), &i_to_expr(2), "*".to_string(), &i_to_expr(3))?;
         test_infix_expression(call_expr.args.get(2).unwrap(), &i_to_expr(4), "+".to_string(), &i_to_expr(5))?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_string_expressions() -> Result<()> {
+        let input = b"\"hello world\";".to_vec();
+
+        let program = parse(input.bytes())?;
+
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Str(s) = &e.expr {
+                assert_eq!("hello world".to_string(), s.value);
+            } else {
+                panic!("Expected string expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected string expression");
+        };
 
         Ok(())
     }
