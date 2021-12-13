@@ -106,7 +106,7 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
 
                     apply_function(function, &mut args)
                 },
-                _ => Err(Error::new(format!("Expression: {} not supported", expr))),
+                Expr::Str(s) => Ok(MObject::Str(MString { value: s.value })),
             }
         },
     }
@@ -250,6 +250,10 @@ fn eval_infix_expression(left: MObject, op: String, right: MObject) -> Result<MO
         if let MObject::Bool(right_bool) = right {
             return eval_boolean_infix_operator(left_bool.value, op, right_bool.value);
         }
+    } else if let MObject::Str(ref left_str) = left {
+        if let MObject::Str(right_str) = right {
+            return eval_string_infix_operator(left_str.value.clone(), op, right_str.value);
+        }
     }
     Ok(new_error(format!("type mismatch: {} {} {}", left, op, right)))
 }
@@ -273,6 +277,14 @@ fn eval_boolean_infix_operator(left: bool, op: String, right: bool) -> Result<MO
     let result = match op.as_str() {
         "==" => native_bool_to_boolean(left == right),
         "!=" => native_bool_to_boolean(left != right),
+        _ => new_error(format!("unknown operator: {} {} {}", left, op, right)),
+    };
+    Ok(result)
+}
+
+fn eval_string_infix_operator(left: String, op: String, right: String) -> Result<MObject> {
+    let result = match op.as_str() {
+        "+" => MObject::Str(MString { value: left + &right }),
         _ => new_error(format!("unknown operator: {} {} {}", left, op, right)),
     };
     Ok(result)
@@ -504,6 +516,7 @@ mod tests {
                 return 1;
             }".to_string(), "unknown operator: true + false".to_string()),
             ("foobar".to_string(), "identifier not found: foobar".to_string()),
+            ("\"Hello\" - \"World\"".to_string(), "unknown operator: Hello - World".to_string()),
         ];
 
         for tt in tests {
@@ -582,5 +595,33 @@ mod tests {
         addTwo(2);".to_string();
 
         test_integer_obj(4, test_eval(input)?)
+    }
+
+    #[test]
+    fn test_string_literal() -> Result<()> {
+        let input = "\"Hello World!\"".to_string();
+        let evaluated = test_eval(input)?;
+
+        if let MObject::Str(x) = evaluated {
+            assert_eq!("Hello World!".to_string(), x.value);
+        } else {
+            panic!("Expected string literal, got: {}", evaluated);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_string_concatenation() -> Result<()> {
+        let input = "\"Hello\" + \" \" + \"World!\"".to_string();
+        let evaluated = test_eval(input)?;
+
+        if let MObject::Str(x) = evaluated {
+            assert_eq!("Hello World!".to_string(), x.value);
+        } else {
+            panic!("Expected string literal, got: {}", evaluated);
+        }
+
+        Ok(())
     }
 }
