@@ -4,7 +4,7 @@ use crate::{
     ast,
     lexer::lexer::Lexer,
     parser::parser::Parser,
-    interpreter::{evaluator, object::Environment},
+    interpreter::{evaluator, environment::Environment},
     error::Error,
 };
 

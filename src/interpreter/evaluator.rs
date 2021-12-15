@@ -1,6 +1,10 @@
 use crate::{
     error::Error,
-    interpreter::object::*,
+    interpreter::{
+        object::*,
+        builtin::Builtin,
+        environment::Environment,
+    },
     ast::*,
 };
 
