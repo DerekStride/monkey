@@ -290,6 +290,38 @@ impl fmt::Display for StringLiteral {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct ArrayLiteral {
+    pub token: Token,
+    pub elements: Vec<Expr>,
+}
+
+impl Node for ArrayLiteral {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for ArrayLiteral {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for ArrayLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        write!(
+            f,
+            "{}",
+            self.elements.iter()
+                .map(|p| format!("{}", p))
+                .collect::<Vec<String>>()
+                .join(", ")
+        )?;
+        write!(f, "]")
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct IfExpression {
     pub token: Token,
     pub condition: Box<Expr>,
@@ -427,16 +459,42 @@ impl fmt::Display for FnCall {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct IndexOperation {
+    pub token: Token,
+    pub left: Box<Expr>,
+    pub index: Box<Expr>,
+}
+
+impl Node for IndexOperation {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for IndexOperation {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for IndexOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}[{}])", self.left, self.index)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub enum Expr {
     Ident(Identifier),
     Int(IntegerLiteral),
     Bool(BooleanLiteral),
     Str(StringLiteral),
+    Array(ArrayLiteral),
     Pre(Prefix),
     In(Infix),
     If(IfExpression),
     Fn(FnLiteral),
     Call(FnCall),
+    Index(IndexOperation),
 }
 
 impl Node for Expr {
@@ -446,11 +504,13 @@ impl Node for Expr {
             Expr::Int(x) => x.token_literal(),
             Expr::Bool(x) => x.token_literal(),
             Expr::Str(x) => x.token_literal(),
+            Expr::Array(x) => x.token_literal(),
             Expr::Pre(x) => x.token_literal(),
             Expr::In(x) => x.token_literal(),
             Expr::If(x) => x.token_literal(),
             Expr::Fn(x) => x.token_literal(),
             Expr::Call(x) => x.token_literal(),
+            Expr::Index(x) => x.token_literal(),
         }
     }
 }
@@ -462,11 +522,13 @@ impl Expression for Expr {
             Expr::Int(x) => x.expr_node(),
             Expr::Bool(x) => x.expr_node(),
             Expr::Str(x) => x.expr_node(),
+            Expr::Array(x) => x.expr_node(),
             Expr::Pre(x) => x.expr_node(),
             Expr::In(x) => x.expr_node(),
             Expr::If(x) => x.expr_node(),
             Expr::Fn(x) => x.expr_node(),
             Expr::Call(x) => x.expr_node(),
+            Expr::Index(x) => x.expr_node(),
         }
     }
 }
@@ -478,11 +540,13 @@ impl fmt::Display for Expr {
             Expr::Int(x) => write!(f, "{}", x),
             Expr::Bool(x) => write!(f, "{}", x),
             Expr::Str(x) => write!(f, "{}", x),
+            Expr::Array(x) => write!(f, "{}", x),
             Expr::Pre(x) => write!(f, "{}", x),
             Expr::In(x) => write!(f, "{}", x),
             Expr::If(x) => write!(f, "{}", x),
             Expr::Fn(x) => write!(f, "{}", x),
             Expr::Call(x) => write!(f, "{}", x),
+            Expr::Index(x) => write!(f, "{}", x),
         }
     }
 }

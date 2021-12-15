@@ -11,6 +11,7 @@ pub enum Precedence {
     PRODUCT,     // *
     PREFIX,      // -X or !X
     CALL,        // myFunction(X)
+    INDEX,       // myArray[0]
 }
 
 pub fn compute_priority_map(map: &mut HashMap<TokenType, Precedence>) {
@@ -24,6 +25,7 @@ pub fn compute_priority_map(map: &mut HashMap<TokenType, Precedence>) {
         (TokenType::SLASH,    Precedence::PRODUCT),
         (TokenType::ASTERISK, Precedence::PRODUCT),
         (TokenType::LPAREN,   Precedence::CALL),
+        (TokenType::LBRACKET,  Precedence::INDEX),
     ];
 
     for t in precedences {

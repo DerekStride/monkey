@@ -107,6 +107,34 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                     apply_function(function, &mut args)
                 },
                 Expr::Str(s) => Ok(MObject::Str(MString { value: s.value })),
+                Expr::Array(a) => {
+                    let elements = eval_expressions(a.elements, env)?;
+
+                    if elements.len() == 1 {
+                        if let Some(value) = elements.get(0) {
+                            if let MObject::Err(_) = value {
+                                return Ok(value.clone());
+                            };
+                        };
+                    };
+
+                    Ok(
+                        MObject::Array(
+                            MArray {
+                                elements,
+                            }
+                        )
+                    )
+                },
+                Expr::Index(i) => {
+                    let left = eval(MNode::Expr(*i.left), env)?;
+                    if let MObject::Err(_) = left { return Ok(left); };
+
+                    let index = eval(MNode::Expr(*i.index), env)?;
+                    if let MObject::Err(_) = index { return Ok(index); };
+
+                    eval_index_expression(left, index)
+                },
             }
         },
     }
@@ -197,6 +225,10 @@ fn apply_function(obj: MObject, args: &mut Vec<MObject>) -> Result<MObject> {
     } else if let MObject::Builtin(b) = obj {
         match b {
             Builtin::Len(len) => len(args),
+            Builtin::First(first) => first(args),
+            Builtin::Last(last) => last(args),
+            Builtin::Rest(rest) => rest(args),
+            Builtin::Push(push) => push(args),
         }
     } else {
         Ok(new_error(format!("not a function: {}", obj)))
@@ -311,6 +343,32 @@ fn eval_identifier_expression(ident: Identifier, env: &mut Environment) -> Resul
         Ok(v.clone())
     } else {
         Ok(new_error(format!("identifier not found: {}", ident.value)))
+    }
+}
+
+fn eval_index_expression(left: MObject, index: MObject) -> Result<MObject> {
+    if let MObject::Array(arr) = left {
+        if let MObject::Int(i) = index {
+            Ok(eval_array_index_expression(arr, i.value))
+        } else {
+            Ok(new_error(format!("index operator not supported: {}", index)))
+        }
+    } else {
+        Ok(new_error(format!("index operator not supported: {}", left)))
+    }
+}
+
+fn eval_array_index_expression(arr: MArray, index: i128) -> MObject {
+    let idx = index as usize;
+
+    if index < 0 || idx > arr.elements.len() {
+        NULL
+    } else {
+        if let Some(o) = arr.elements.get(idx) {
+            o.clone()
+        } else {
+            NULL
+        }
     }
 }
 
@@ -460,8 +518,8 @@ mod tests {
         ];
 
         let nil_tests = vec![
-            ("if (false) { 10 }".to_string(), NULL),
-            ("if (1 > 2) { 10 }".to_string(), NULL),
+            "if (false) { 10 }".to_string(),
+            "if (1 > 2) { 10 }".to_string(),
         ];
 
         for tt in tests {
@@ -470,7 +528,7 @@ mod tests {
         }
 
         for tt in nil_tests {
-            let evaluated = test_eval(tt.0)?;
+            let evaluated = test_eval(tt)?;
             assert_eq!(NULL, evaluated);
         }
 
@@ -521,6 +579,14 @@ mod tests {
             ("\"Hello\" - \"World\"".to_string(), "unknown operator: Hello - World".to_string()),
             ("len(1)".to_string(), "argument to 'len' not supported, got: 1".to_string()),
             ("len(\"one\", \"two\")".to_string(), "wrong number of arguments, got: 2, want: 1".to_string()),
+            ("first(1)".to_string(), "argument to 'first' not supported, got: 1".to_string()),
+            ("first(\"one\", \"two\")".to_string(), "wrong number of arguments, got: 2, want: 1".to_string()),
+            ("last(1)".to_string(), "argument to 'last' not supported, got: 1".to_string()),
+            ("last(\"one\", \"two\")".to_string(), "wrong number of arguments, got: 2, want: 1".to_string()),
+            ("rest(1)".to_string(), "argument to 'rest' not supported, got: 1".to_string()),
+            ("rest(\"one\", \"two\")".to_string(), "wrong number of arguments, got: 2, want: 1".to_string()),
+            ("push(1, 2)".to_string(), "first argument to 'push' not supported, got: 1".to_string()),
+            ("push(\"one\")".to_string(), "wrong number of arguments, got: 1, want: 2".to_string()),
         ];
 
         for tt in tests {
@@ -628,18 +694,110 @@ mod tests {
 
         Ok(())
     }
+
     #[test]
     fn test_builtin_functions() -> Result<()> {
         let tests = vec![
             ("len(\"\")".to_string(), 0),
             ("len(\"four\")".to_string(), 4),
             ("len(\"hello world\")".to_string(), 11),
+            ("len([1, 2])".to_string(), 2),
+            ("len([1])".to_string(), 1),
+            ("len([])".to_string(), 0),
+            ("first([1])".to_string(), 1),
+            ("first([1, true])".to_string(), 1),
+            ("last([1])".to_string(), 1),
+            ("last([true, 1])".to_string(), 1),
+        ];
+
+        let nil_tests = vec![
+            "first([])".to_string(),
+            "last([])".to_string(),
+        ];
+
+        let bool_tests = vec![
+            "first([true, 2, false])".to_string(),
+            "last([false, 2, true])".to_string(),
+        ];
+
+        let str_tests = vec![
+            ("rest([1, true, \"foobar\"])".to_string(), "[true, \"foobar\"]".to_string()),
+            ("rest([1, true])".to_string(), "[true]".to_string()),
+            ("rest([1])".to_string(), "[]".to_string()),
+            ("rest([])".to_string(), "null".to_string()),
+            ("push([1, true], 5)".to_string(), "[1, true, 5]".to_string()),
+            ("push([1], 5)".to_string(), "[1, 5]".to_string()),
+            ("push([], 5)".to_string(), "[5]".to_string()),
         ];
 
         for tt in tests {
             let evaluated = test_eval(tt.0)?;
             test_integer_obj(tt.1, evaluated)?;
         };
+
+        for tt in nil_tests {
+            let evaluated = test_eval(tt)?;
+            assert_eq!(NULL, evaluated);
+        };
+
+        for tt in bool_tests {
+            let evaluated = test_eval(tt)?;
+            test_boolean_obj(true, evaluated)?;
+        };
+
+        for tt in str_tests {
+            let evaluated = test_eval(tt.0)?;
+            assert_eq!(tt.1, format!("{}", evaluated));
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_array_literal() -> Result<()> {
+        let input = "[1, 2 * 2, 3 + 3]".to_string();
+        let evaluated = test_eval(input)?;
+
+        if let MObject::Array(mut arr) = evaluated {
+            assert_eq!(3, arr.elements.len());
+
+            test_integer_obj(6, arr.elements.pop().unwrap())?;
+            test_integer_obj(4, arr.elements.pop().unwrap())?;
+            test_integer_obj(1, arr.elements.pop().unwrap())?;
+        } else {
+            panic!("Expected array literal, got: {}", evaluated);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_index_expressions() -> Result<()> {
+        let tests = vec![
+            ("[1, 2, 3][0]".to_string(), 1),
+            ("[1, 2, 3][1]".to_string(), 2),
+            ("[1, 2, 3][2]".to_string(), 3),
+            ("let i = 0; [1][i];".to_string(), 1),
+            ("[1, 2, 3][1 + 1];".to_string(), 3),
+            ("let myArray = [1, 2, 3]; myArray[2];".to_string(), 3),
+            ("let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];".to_string(), 6),
+            ("let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]".to_string(), 2),
+        ];
+
+        let nil_tests = vec![
+            "[1, 2, 3][3]".to_string(),
+            "[1, 2, 3][-1]".to_string(),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+            test_integer_obj(tt.1, evaluated)?;
+        }
+
+        for tt in nil_tests {
+            let evaluated = test_eval(tt)?;
+            assert_eq!(NULL, evaluated);
+        }
 
         Ok(())
     }

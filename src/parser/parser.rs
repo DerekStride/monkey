@@ -50,6 +50,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         p.register_prefix(TokenType::IF, Self::parse_if_expression);
         p.register_prefix(TokenType::FUNCTION, Self::parse_function_expression);
         p.register_prefix(TokenType::STRING, Self::parse_string_expression);
+        p.register_prefix(TokenType::LBRACKET, Self::parse_array_expression);
 
         p.register_infix(TokenType::PLUS, Self::parse_infix_expression);
         p.register_infix(TokenType::MINUS, Self::parse_infix_expression);
@@ -60,6 +61,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         p.register_infix(TokenType::LT, Self::parse_infix_expression);
         p.register_infix(TokenType::GT, Self::parse_infix_expression);
         p.register_infix(TokenType::LPAREN, Self::parse_call_expression);
+        p.register_infix(TokenType::LBRACKET, Self::parse_index_expression);
 
         Ok(p)
     }
@@ -348,6 +350,20 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         )
     }
 
+    fn parse_array_expression(&mut self) -> Option<Expr> {
+        let token = self.tok.clone();
+        let elements = self.parse_expression_list(TokenType::RBRACKET);
+
+        Some(
+            Expr::Array(
+                ArrayLiteral {
+                    token,
+                    elements,
+                }
+            )
+        )
+    }
+
     fn parse_prefix_expression(&mut self) -> Option<Expr> {
         let token = self.tok.clone();
         let operator = token.literal.clone();
@@ -388,10 +404,10 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         )
     }
 
-    fn parse_call_arguments(&mut self) -> Vec<Expr> {
+    fn parse_expression_list(&mut self, end: TokenType) -> Vec<Expr> {
         let mut args = Vec::new();
 
-        if self.peek_token_is(TokenType::RPAREN) {
+        if self.peek_token_is(end) {
             if let Err(_) = self.next_token() { return args; };
             return args;
         };
@@ -414,7 +430,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
             }
         }
 
-        match self.expect_peek(TokenType::RPAREN) {
+        match self.expect_peek(end) {
             Some(_) => args,
             None => args,
         }
@@ -422,7 +438,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
 
     fn parse_call_expression(&mut self, function: Expr) -> Option<Expr> {
         let token = self.tok.clone();
-        let args = self.parse_call_arguments();
+        let args = self.parse_expression_list(TokenType::RPAREN);
 
         Some(
             Expr::Call(
@@ -430,6 +446,25 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
                     token,
                     function: Box::new(function),
                     args,
+                }
+            )
+        )
+    }
+
+    fn parse_index_expression(&mut self, left: Expr) -> Option<Expr> {
+        let token = self.tok.clone();
+        self.ignore_next()?;
+
+        let index = self.parse_expression(Precedence::LOWEST)?;
+
+        self.expect_peek(TokenType::RBRACKET)?;
+
+        Some(
+            Expr::Index(
+                IndexOperation {
+                    token,
+                    left: Box::new(left),
+                    index: Box::new(index),
                 }
             )
         )
@@ -871,6 +906,8 @@ mod tests {
             ("a + add(b * c) + d".to_string(), "((a + add((b * c))) + d)".to_string()),
             ("add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))".to_string(), "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))".to_string()),
             ("add(a + b + c * d / f + g)".to_string(), "add((((a + b) + ((c * d) / f)) + g))".to_string()),
+            ("a * [1, 2, 3, 4][b * c] * d".to_string(), "((a * ([1, 2, 3, 4][(b * c)])) * d)".to_string()),
+            ("add(a * b[2], b[1], 2 * [1, 2][1])".to_string(), "add((a * (b[2])), (b[1]), (2 * ([1, 2][1])))".to_string()),
         ];
 
         for tt in tests {
@@ -1067,6 +1104,51 @@ mod tests {
         if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
             if let Expr::Str(s) = &e.expr {
                 assert_eq!("hello world".to_string(), s.value);
+            } else {
+                panic!("Expected string expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected string expression");
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_array_expressions() -> Result<()> {
+        let input = b"[1, 2 * 2, 3 + 3]".to_vec();
+
+        let program = parse(input.bytes())?;
+
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Array(array) = &e.expr {
+                test_integer_literal(1, array.elements.get(0).unwrap())?;
+                test_infix_expression(array.elements.get(1).unwrap(), &i_to_expr(2), "*".to_string(), &i_to_expr(2))?;
+                test_infix_expression(array.elements.get(2).unwrap(), &i_to_expr(3), "+".to_string(), &i_to_expr(3))?;
+            } else {
+                panic!("Expected string expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected string expression");
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_array_index_expression() -> Result<()> {
+        let input = b"myArray[1 * 1]".to_vec();
+
+        let program = parse(input.bytes())?;
+
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Index(index) = &e.expr {
+                test_identifier(&"myArray".to_string(), &index.left)?;
+                test_infix_expression(&index.index, &i_to_expr(1), "*".to_string(), &i_to_expr(1))?;
             } else {
                 panic!("Expected string expression, got: {}", e);
             }

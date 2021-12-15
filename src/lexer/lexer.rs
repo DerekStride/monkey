@@ -60,6 +60,8 @@ impl<I: Iterator<Item = FileByte>> Lexer<I> {
             b';' => new_token(TokenType::SEMICOLON, &[ch])?,
             b'(' => new_token(TokenType::LPAREN, &[ch])?,
             b')' => new_token(TokenType::RPAREN, &[ch])?,
+            b'[' => new_token(TokenType::LBRACKET, &[ch])?,
+            b']' => new_token(TokenType::RBRACKET, &[ch])?,
             b',' => new_token(TokenType::COMMA, &[ch])?,
             b'+' => new_token(TokenType::PLUS, &[ch])?,
             b'-' => new_token(TokenType::MINUS, &[ch])?,
@@ -318,6 +320,7 @@ mod tests {
             10 != 9;
             "foobar"
             "foo bar"
+            [1, 2]
         "###.to_vec();
         let l = &mut lex(input.bytes());
 
@@ -361,6 +364,11 @@ mod tests {
             Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
             Expected { expected_type: TokenType::STRING, expected_literal: "foobar".to_string() },
             Expected { expected_type: TokenType::STRING, expected_literal: "foo bar".to_string() },
+            Expected { expected_type: TokenType::LBRACKET, expected_literal: "[".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "1".to_string() },
+            Expected { expected_type: TokenType::COMMA, expected_literal: ",".to_string() },
+            Expected { expected_type: TokenType::INT, expected_literal: "2".to_string() },
+            Expected { expected_type: TokenType::RBRACKET, expected_literal: "]".to_string() },
             Expected { expected_type: TokenType::EOF, expected_literal: "".to_string() },
         ];
 
