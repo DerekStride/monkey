@@ -139,6 +139,9 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
 
                     eval_index_expression(left, index)
                 },
+                Expr::Hash(_) => {
+                    Err(Error::new(format!("Expression is not supported: {}", expr)))
+                },
             }
         },
     }

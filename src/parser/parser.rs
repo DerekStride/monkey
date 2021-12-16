@@ -1158,4 +1158,40 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_parsing_hash_expressions() -> Result<()> {
+        let input = b"{\"one\": 1, \"two\": 2, \"three\": 3}".to_vec();
+
+        let program = parse(input.bytes())?;
+
+        let tests = HashMap::from([
+            ("one".to_string(), 1),
+            ("two".to_string(), 2),
+            ("three".to_string(), 3),
+        ]);
+
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Hash(h) = &e.expr {
+                assert_eq!(3, h.pairs.len());
+
+                for (k, v) in &h.pairs {
+                    if let Expr::Str(s) = k {
+                        let expected = tests.get(&s.value).unwrap();
+                        test_integer_literal(*expected, &v)?;
+                    } else {
+                        panic!("Expected key to be a string, got: {}", k);
+                    }
+                };
+            } else {
+                panic!("Expected hash expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected hash expression");
+        };
+
+        Ok(())
+    }
 }
