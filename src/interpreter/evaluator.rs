@@ -238,6 +238,7 @@ fn apply_function(obj: MObject, args: &mut Vec<MObject>) -> Result<MObject> {
             Builtin::Last(last) => last(args),
             Builtin::Rest(rest) => rest(args),
             Builtin::Push(push) => push(args),
+            Builtin::Puts(puts) => puts(args),
         }
     } else {
         Ok(new_error(format!("not a function: {}", obj)))

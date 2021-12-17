@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io::{self, Write}};
 
 use crate::{
     error::Error,
@@ -14,6 +14,7 @@ pub enum Builtin {
     Last(fn(&mut Vec<MObject>) -> Result<MObject>),
     Rest(fn(&mut Vec<MObject>) -> Result<MObject>),
     Push(fn(&mut Vec<MObject>) -> Result<MObject>),
+    Puts(fn(&mut Vec<MObject>) -> Result<MObject>),
 }
 
 impl fmt::Display for Builtin {
@@ -24,6 +25,7 @@ impl fmt::Display for Builtin {
             Builtin::Last(_) => write!(f, "Builtin: last(array)"),
             Builtin::Rest(_) => write!(f, "Builtin: rest(array)"),
             Builtin::Push(_) => write!(f, "Builtin: push(array, arg)"),
+            Builtin::Puts(_) => write!(f, "Builtin: puts(object, ...)"),
         }
     }
 }
@@ -36,6 +38,7 @@ impl fmt::Debug for Builtin {
             Builtin::Last(_) => write!(f, "Builtin: last(array)"),
             Builtin::Rest(_) => write!(f, "Builtin: rest(array)"),
             Builtin::Push(_) => write!(f, "Builtin: push(array, arg)"),
+            Builtin::Puts(_) => write!(f, "Builtin: puts(object, ...)"),
         }
     }
 }
@@ -74,6 +77,12 @@ impl PartialEq for Builtin {
                     _ => false,
                 }
             },
+            Builtin::Puts(_) => {
+                match other {
+                    Builtin::Puts(_) => true,
+                    _ => false,
+                }
+            },
         }
     }
 }
@@ -98,6 +107,10 @@ pub const REST: MObject = MObject::Builtin(
 
 pub const PUSH: MObject = MObject::Builtin(
     Builtin::Push(self::push)
+);
+
+pub const PUTS: MObject = MObject::Builtin(
+    Builtin::Puts(self::puts)
 );
 
 fn len(args: &mut Vec<MObject>) -> Result<MObject> {
@@ -247,4 +260,16 @@ fn push(args: &mut Vec<MObject>) -> Result<MObject> {
             )
         )
     }
+}
+
+fn puts(args: &mut Vec<MObject>) -> Result<MObject> {
+    let mut output = io::stdout();
+
+    for obj in args {
+        output.write_all(format!("{}\n", obj).as_bytes())?;
+    };
+
+    output.flush()?;
+
+    Ok(MObject::Null)
 }

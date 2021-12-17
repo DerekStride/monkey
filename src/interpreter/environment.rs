@@ -20,6 +20,7 @@ impl Environment {
         builtins.insert("last".to_string(), builtin::LAST);
         builtins.insert("rest".to_string(), builtin::REST);
         builtins.insert("push".to_string(), builtin::PUSH);
+        builtins.insert("puts".to_string(), builtin::PUTS);
 
         Self {
             store: HashMap::new(),
