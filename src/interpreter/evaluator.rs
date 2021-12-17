@@ -97,6 +97,10 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                     )
                 },
                 Expr::Call(func_call) => {
+                    if func_call.function.token_literal() == "quote" {
+                        return quote(func_call.args.get(0));
+                    };
+
                     let function = eval(MNode::Expr(*func_call.function), env)?;
                     if let MObject::Err(_) = function { return Ok(function); };
 
@@ -425,6 +429,22 @@ fn eval_hash_literal_expression(h: HashLiteral, env: &mut Environment) -> Result
     )
 }
 
+fn quote(arg: Option<&Expr>) -> Result<MObject> {
+    let node = if let Some(expr) = arg {
+        MNode::Expr(expr.clone())
+    } else {
+        return Ok(new_error("argument required for quote, got: null".to_string()));
+    };
+
+    Ok(
+        MObject::Quote(
+            Quote {
+                node,
+            }
+        )
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,6 +662,7 @@ mod tests {
             ("push(\"one\")".to_string(), "wrong number of arguments, got: 1, want: 2".to_string()),
             ("{ [2]: true }".to_string(), "unusable as hash key: [2]".to_string()),
             ("{ true: true }[[2]]".to_string(), "unusable as hash key: [2]".to_string()),
+            ("quote()".to_string(), "argument required for quote, got: null".to_string()),
         ];
 
         for tt in tests {
@@ -923,6 +944,54 @@ mod tests {
         } else {
             panic!("Expected hash literal, got: {}", evaluated);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_quote() -> Result<()> {
+        let tests = vec![
+            ("quote(5)".to_string(), "5".to_string()),
+            ("quote(5 + 8)".to_string(), "(5 + 8)".to_string()),
+            ("quote(foobar)".to_string(), "foobar".to_string()),
+            ("quote(foobar + barfoo)".to_string(), "(foobar + barfoo)".to_string()),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+
+            if let MObject::Quote(quote) = evaluated {
+                assert_eq!(tt.1, format!("{}", quote.node));
+            } else {
+                panic!("expected quote object, got: {}", evaluated);
+            };
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_unquote() -> Result<()> {
+        let tests = vec![
+            ("quote(5)".to_string(), "5".to_string()),
+            ("quote(5 + 8)".to_string(), "(5 + 8)".to_string()),
+            ("quote(foobar)".to_string(), "foobar".to_string()),
+            ("quote(foobar + barfoo)".to_string(), "(foobar + barfoo)".to_string()),
+            ("quote(unquote(4))".to_string(), "4".to_string()),
+            ("quote(unquote(4 + 4))".to_string(), "8".to_string()),
+            ("quote(8 + unquote(4 + 4))".to_string(), "(8 + 8)".to_string()),
+            ("quote(unquote(4 + 4) + 8)".to_string(), "(8 + 8)".to_string()),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+
+            if let MObject::Quote(quote) = evaluated {
+                assert_eq!(tt.1, format!("{}", quote.node));
+            } else {
+                panic!("expected quote object, got: {}", evaluated);
+            };
+        };
 
         Ok(())
     }

@@ -44,6 +44,16 @@ pub enum MNode {
     Expr(Expr),
 }
 
+impl fmt::Display for MNode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            MNode::Prog(x) => write!(f, "{}", x),
+            MNode::Stmt(x) => write!(f, "{}", x),
+            MNode::Expr(x) => write!(f, "{}", x),
+        }
+    }
+}
+
 // ============================================================================
 // Statements
 // ============================================================================
