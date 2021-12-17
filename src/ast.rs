@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, collections::HashMap, hash::{Hash, Hasher}};
 
 use crate::lexer::token::Token;
 
@@ -321,6 +321,51 @@ impl fmt::Display for ArrayLiteral {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct HashLiteral {
+    pub token: Token,
+    pub pairs: HashMap<Expr, Expr>,
+}
+
+impl Hash for HashLiteral {
+    fn hash<H: Hasher>(&self, _state: &mut H) {
+    }
+}
+
+impl PartialEq for HashLiteral {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+impl Eq for HashLiteral {}
+
+impl Node for HashLiteral {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for HashLiteral {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for HashLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{")?;
+        write!(
+            f,
+            "{}",
+            self.pairs.iter()
+                .map(|(k, v)| format!("{}: {}", k, v))
+                .collect::<Vec<String>>()
+                .join(", ")
+        )?;
+        write!(f, "}}")
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct IfExpression {
     pub token: Token,
@@ -489,6 +534,7 @@ pub enum Expr {
     Bool(BooleanLiteral),
     Str(StringLiteral),
     Array(ArrayLiteral),
+    Hash(HashLiteral),
     Pre(Prefix),
     In(Infix),
     If(IfExpression),
@@ -505,6 +551,7 @@ impl Node for Expr {
             Expr::Bool(x) => x.token_literal(),
             Expr::Str(x) => x.token_literal(),
             Expr::Array(x) => x.token_literal(),
+            Expr::Hash(x) => x.token_literal(),
             Expr::Pre(x) => x.token_literal(),
             Expr::In(x) => x.token_literal(),
             Expr::If(x) => x.token_literal(),
@@ -523,6 +570,7 @@ impl Expression for Expr {
             Expr::Bool(x) => x.expr_node(),
             Expr::Str(x) => x.expr_node(),
             Expr::Array(x) => x.expr_node(),
+            Expr::Hash(x) => x.expr_node(),
             Expr::Pre(x) => x.expr_node(),
             Expr::In(x) => x.expr_node(),
             Expr::If(x) => x.expr_node(),
@@ -541,6 +589,7 @@ impl fmt::Display for Expr {
             Expr::Bool(x) => write!(f, "{}", x),
             Expr::Str(x) => write!(f, "{}", x),
             Expr::Array(x) => write!(f, "{}", x),
+            Expr::Hash(x) => write!(f, "{}", x),
             Expr::Pre(x) => write!(f, "{}", x),
             Expr::In(x) => write!(f, "{}", x),
             Expr::If(x) => write!(f, "{}", x),

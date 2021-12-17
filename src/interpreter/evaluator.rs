@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     error::Error,
     interpreter::{
@@ -138,6 +140,9 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                     if let MObject::Err(_) = index { return Ok(index); };
 
                     eval_index_expression(left, index)
+                },
+                Expr::Hash(h) => {
+                    eval_hash_literal_expression(h, env)
                 },
             }
         },
@@ -357,6 +362,18 @@ fn eval_index_expression(left: MObject, index: MObject) -> Result<MObject> {
         } else {
             Ok(new_error(format!("index operator not supported: {}", index)))
         }
+    } else if let MObject::Hash(h) = left {
+        let hash_key = match index {
+            MObject::Str(x) => HashKey::Str(x),
+            MObject::Int(x) => HashKey::Int(x),
+            MObject::Bool(x) => HashKey::Bool(x),
+            _ => return Ok(new_error(format!("unusable as hash key: {}", index)))
+        };
+
+        match h.pairs.get(&hash_key) {
+            Some(pair) => Ok(pair.value.clone()),
+            None => Ok(NULL),
+        }
     } else {
         Ok(new_error(format!("index operator not supported: {}", left)))
     }
@@ -374,6 +391,37 @@ fn eval_array_index_expression(arr: MArray, index: i128) -> MObject {
             NULL
         }
     }
+}
+
+fn eval_hash_literal_expression(h: HashLiteral, env: &mut Environment) -> Result<MObject> {
+    let mut pairs = HashMap::new();
+
+    for (k_node, v_node) in h.pairs {
+        let key = eval(MNode::Expr(k_node), env)?;
+        if let MObject::Err(_) = key { return Ok(key); };
+
+        let hash_key = match key.clone() {
+            MObject::Str(x) => HashKey::Str(x),
+            MObject::Int(x) => HashKey::Int(x),
+            MObject::Bool(x) => HashKey::Bool(x),
+            _ => return Ok(new_error(format!("unusable as hash key: {}", key))),
+        };
+
+        let value = eval(MNode::Expr(v_node), env)?;
+        if let MObject::Err(_) = value { return Ok(value); };
+
+        let hash_value = HashPair { key, value };
+
+        pairs.insert(hash_key, hash_value);
+    };
+
+    Ok(
+        MObject::Hash(
+            MHash {
+                pairs,
+            }
+        )
+    )
 }
 
 #[cfg(test)]
@@ -591,6 +639,8 @@ mod tests {
             ("rest(\"one\", \"two\")".to_string(), "wrong number of arguments, got: 2, want: 1".to_string()),
             ("push(1, 2)".to_string(), "first argument to 'push' not supported, got: 1".to_string()),
             ("push(\"one\")".to_string(), "wrong number of arguments, got: 1, want: 2".to_string()),
+            ("{ [2]: true }".to_string(), "unusable as hash key: [2]".to_string()),
+            ("{ true: true }[[2]]".to_string(), "unusable as hash key: [2]".to_string()),
         ];
 
         for tt in tests {
@@ -786,11 +836,18 @@ mod tests {
             ("let myArray = [1, 2, 3]; myArray[2];".to_string(), 3),
             ("let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];".to_string(), 6),
             ("let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]".to_string(), 2),
+            ("{\"foo\": 5}[\"foo\"]".to_string(), 5),
+            (r#"let key = "foo"; {"foo": 5}[key]"#.to_string(), 5),
+            (r#"{5: 5}[5]"#.to_string(), 5),
+            ("{true: 5}[true]".to_string(), 5),
+            ("{false: 5}[false]".to_string(), 5),
         ];
 
         let nil_tests = vec![
             "[1, 2, 3][3]".to_string(),
             "[1, 2, 3][-1]".to_string(),
+            r#"{"foo": 5}["bar"]"#.to_string(),
+            r#"{}["foo"]"#.to_string(),
         ];
 
         for tt in tests {
@@ -801,6 +858,69 @@ mod tests {
         for tt in nil_tests {
             let evaluated = test_eval(tt)?;
             assert_eq!(NULL, evaluated);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_hash_literal() -> Result<()> {
+        let input = r###"
+            let two = "two";
+            {
+                "one": 10 - 9,
+                two: 1 + 1,
+                "thr" + "ee": 6 / 2,
+                4: 4,
+                true: 5,
+                false: 6
+            }
+            "###.to_string();
+        let evaluated = test_eval(input)?;
+
+        let str_key_tests = vec![
+            (MString { value: "one".to_string() }, 1),
+            (MString { value: "two".to_string() }, 2),
+            (MString { value: "three".to_string() }, 3),
+        ];
+
+        let int_key_tests = vec![
+            (4, 4),
+        ];
+
+        let bool_key_tests = vec![
+            (true, 5),
+            (false, 6),
+        ];
+
+        if let MObject::Hash(h) = evaluated {
+            assert_eq!(6, h.pairs.len());
+
+            for tt in str_key_tests {
+                let key = HashKey::Str(tt.0.clone());
+                let pair = h.pairs.get(&key).unwrap();
+
+                assert_eq!(MObject::Str(tt.0), pair.key);
+                test_integer_obj(tt.1, pair.value.clone())?;
+            };
+
+            for tt in int_key_tests {
+                let key = HashKey::Int(Integer { value: tt.0.clone() });
+                let pair = h.pairs.get(&key).unwrap();
+
+                test_integer_obj(tt.0, pair.key.clone())?;
+                test_integer_obj(tt.1, pair.value.clone())?;
+            };
+
+            for tt in bool_key_tests {
+                let key = HashKey::Bool(Boolean { value: tt.0 });
+                let pair = h.pairs.get(&key).unwrap();
+
+                test_boolean_obj(tt.0, pair.key.clone())?;
+                test_integer_obj(tt.1, pair.value.clone())?;
+            };
+        } else {
+            panic!("Expected hash literal, got: {}", evaluated);
         }
 
         Ok(())

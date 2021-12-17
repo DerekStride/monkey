@@ -51,6 +51,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         p.register_prefix(TokenType::FUNCTION, Self::parse_function_expression);
         p.register_prefix(TokenType::STRING, Self::parse_string_expression);
         p.register_prefix(TokenType::LBRACKET, Self::parse_array_expression);
+        p.register_prefix(TokenType::LBRACE, Self::parse_hash_expression);
 
         p.register_infix(TokenType::PLUS, Self::parse_infix_expression);
         p.register_infix(TokenType::MINUS, Self::parse_infix_expression);
@@ -364,6 +365,40 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         )
     }
 
+    fn parse_hash_expression(&mut self) -> Option<Expr> {
+        let token = self.tok.clone();
+        let mut pairs = HashMap::new();
+        while !self.peek_token_is(TokenType::RBRACE) {
+            self.ignore_next()?;
+
+            let key = self.parse_expression(Precedence::LOWEST)?;
+            self.expect_peek(TokenType::COLON)?;
+            self.ignore_next()?;
+
+            let value = self.parse_expression(Precedence::LOWEST)?;
+
+            pairs.insert(key, value);
+
+            if !self.peek_token_is(TokenType::RBRACE) {
+                if !self.peek_token_is(TokenType::COMMA) {
+                    return None;
+                };
+                self.ignore_next()?;
+            };
+        }
+
+        self.expect_peek(TokenType::RBRACE)?;
+
+        Some(
+            Expr::Hash(
+                HashLiteral {
+                    token,
+                    pairs,
+                }
+            )
+        )
+    }
+
     fn parse_prefix_expression(&mut self) -> Option<Expr> {
         let token = self.tok.clone();
         let operator = token.literal.clone();
@@ -667,6 +702,15 @@ mod tests {
         Expr::Ident(
             Identifier {
                 token: Token { literal: i.clone(), token_type: TokenType::IDENT },
+                value: i,
+            }
+        )
+    }
+
+    fn s_to_expr(i: String) -> Expr {
+        Expr::Str(
+            StringLiteral {
+                token: Token { literal: i.clone(), token_type: TokenType::STRING },
                 value: i,
             }
         )
@@ -1154,6 +1198,163 @@ mod tests {
             }
         } else {
             panic!("Expected string expression");
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_empty_hash_literal() -> Result<()> {
+        let input = b"{}".to_vec();
+
+        let program = parse(input.bytes())?;
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Hash(h) = &e.expr {
+                assert_eq!(0, h.pairs.len());
+            } else {
+                panic!("Expected hash expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected hash expression");
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_hash_literals_string_keys() -> Result<()> {
+        let input = b"{\"one\": 1, \"two\": 2, \"three\": 3}".to_vec();
+
+        let program = parse(input.bytes())?;
+
+        let tests = HashMap::from([
+            ("one".to_string(), 1),
+            ("two".to_string(), 2),
+            ("three".to_string(), 3),
+        ]);
+
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Hash(h) = &e.expr {
+                assert_eq!(3, h.pairs.len());
+
+                for (k, v) in &h.pairs {
+                    if let Expr::Str(s) = k {
+                        let expected = tests.get(&s.value).unwrap();
+                        test_integer_literal(*expected, &v)?;
+                    } else {
+                        panic!("Expected key to be a string, got: {}", k);
+                    }
+                };
+            } else {
+                panic!("Expected hash expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected hash expression");
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_hash_literals_boolean_keys() -> Result<()> {
+        let input = b"{true: 1, false: 2}".to_vec();
+
+        let program = parse(input.bytes())?;
+
+        let tests = HashMap::from([
+            (true, 1),
+            (false, 2),
+        ]);
+
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Hash(h) = &e.expr {
+                assert_eq!(2, h.pairs.len());
+
+                for (k, v) in &h.pairs {
+                    if let Expr::Bool(b) = k {
+                        let expected = tests.get(&b.value).unwrap();
+                        test_integer_literal(*expected, &v)?;
+                    } else {
+                        panic!("Expected key to be a bool, got: {}", k);
+                    }
+                };
+            } else {
+                panic!("Expected hash expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected hash expression");
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_hash_literals_int_keys() -> Result<()> {
+        let input = b"{1: \"one\", 2: \"two\"}".to_vec();
+
+        let program = parse(input.bytes())?;
+
+        let tests = HashMap::from([
+            (1, "one".to_string()),
+            (2, "two".to_string()),
+        ]);
+
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Hash(h) = &e.expr {
+                assert_eq!(2, h.pairs.len());
+
+                for (k, v) in &h.pairs {
+                    if let Expr::Int(i) = k {
+                        let expected = tests.get(&i.value).unwrap();
+                        if let Expr::Str(s) = v {
+                            assert_eq!(*expected, s.value);
+                        } else {
+                            panic!("expected value to be a string, got: {}", v);
+                        }
+                    } else {
+                        panic!("Expected key to be an int, got: {}", k);
+                    }
+                };
+            } else {
+                panic!("Expected hash expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected hash expression");
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_hash_literals_with_expressions() -> Result<()> {
+        let input = b"{\"one\": 0 + 1, \"two\": 10 - 8, \"three\": 15 / 5}".to_vec();
+
+        let program = parse(input.bytes())?;
+
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Hash(h) = &e.expr {
+                assert_eq!(3, h.pairs.len());
+                let one = h.pairs.get(&s_to_expr("one".to_string())).unwrap();
+                let two = h.pairs.get(&s_to_expr("two".to_string())).unwrap();
+                let three = h.pairs.get(&s_to_expr("three".to_string())).unwrap();
+                test_infix_expression(one, &i_to_expr(0), "+".to_string(), &i_to_expr(1))?;
+                test_infix_expression(two, &i_to_expr(10), "-".to_string(), &i_to_expr(8))?;
+                test_infix_expression(three, &i_to_expr(15), "/".to_string(), &i_to_expr(5))?;
+            } else {
+                panic!("Expected hash expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected hash expression");
         };
 
         Ok(())

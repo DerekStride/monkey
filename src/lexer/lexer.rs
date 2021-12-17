@@ -69,6 +69,7 @@ impl<I: Iterator<Item = FileByte>> Lexer<I> {
             b'/' => new_token(TokenType::SLASH, &[ch])?,
             b'<' => new_token(TokenType::LT, &[ch])?,
             b'>' => new_token(TokenType::GT, &[ch])?,
+            b':' => new_token(TokenType::COLON, &[ch])?,
             b'!' => {
                 let peeked = self.peek_char()?;
                 if peeked == b'=' {
@@ -321,6 +322,7 @@ mod tests {
             "foobar"
             "foo bar"
             [1, 2]
+            {"foo": "bar"}
         "###.to_vec();
         let l = &mut lex(input.bytes());
 
@@ -369,6 +371,11 @@ mod tests {
             Expected { expected_type: TokenType::COMMA, expected_literal: ",".to_string() },
             Expected { expected_type: TokenType::INT, expected_literal: "2".to_string() },
             Expected { expected_type: TokenType::RBRACKET, expected_literal: "]".to_string() },
+            Expected { expected_type: TokenType::LBRACE, expected_literal: "{".to_string() },
+            Expected { expected_type: TokenType::STRING, expected_literal: "foo".to_string() },
+            Expected { expected_type: TokenType::COLON, expected_literal: ":".to_string() },
+            Expected { expected_type: TokenType::STRING, expected_literal: "bar".to_string() },
+            Expected { expected_type: TokenType::RBRACE, expected_literal: "}".to_string() },
             Expected { expected_type: TokenType::EOF, expected_literal: "".to_string() },
         ];
 
