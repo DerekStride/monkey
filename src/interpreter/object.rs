@@ -5,7 +5,7 @@ use crate::{
         environment::Environment,
     },
 };
-use std::fmt;
+use std::{fmt, collections::HashMap};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
 pub struct Integer {
@@ -52,6 +52,47 @@ impl fmt::Display for MArray {
             "[{}]",
             self.elements.iter()
                 .map(|e| format!("{}", e))
+                .collect::<Vec<String>>()
+                .join(", ")
+        )
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug, Hash)]
+pub enum HashKey {
+    Str(MString),
+    Bool(Boolean),
+    Int(Integer),
+}
+
+impl fmt::Display for HashKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            HashKey::Str(x) => write!(f, "{}", x),
+            HashKey::Bool(x) => write!(f, "{}", x),
+            HashKey::Int(x) => write!(f, "{}", x),
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct HashPair {
+    pub key: MObject,
+    pub value: MObject,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct MHash {
+    pub pairs: HashMap<HashKey, HashPair>,
+}
+
+impl fmt::Display for MHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{{{}}}",
+            self.pairs.iter()
+                .map(|(_, v)| format!("{}: {}", v.key, v.value))
                 .collect::<Vec<String>>()
                 .join(", ")
         )
@@ -108,6 +149,7 @@ pub enum MObject {
     Bool(Boolean),
     Str(MString),
     Array(MArray),
+    Hash(MHash),
     Return(ReturnValue),
     Err(MError),
     Fn(Function),
@@ -122,6 +164,7 @@ impl fmt::Display for MObject {
             MObject::Bool(x) => write!(f, "{}", x),
             MObject::Str(x) => write!(f, "{}", x),
             MObject::Array(x) => write!(f, "{}", x),
+            MObject::Hash(x) => write!(f, "{}", x),
             MObject::Return(x) => write!(f, "{}", x),
             MObject::Err(x) => write!(f, "{}", x),
             MObject::Fn(x) => write!(f, "{}", x),
