@@ -362,6 +362,18 @@ fn eval_index_expression(left: MObject, index: MObject) -> Result<MObject> {
         } else {
             Ok(new_error(format!("index operator not supported: {}", index)))
         }
+    } else if let MObject::Hash(h) = left {
+        let hash_key = match index {
+            MObject::Str(x) => HashKey::Str(x),
+            MObject::Int(x) => HashKey::Int(x),
+            MObject::Bool(x) => HashKey::Bool(x),
+            _ => return Ok(new_error(format!("unusable as hash key: {}", index)))
+        };
+
+        match h.pairs.get(&hash_key) {
+            Some(pair) => Ok(pair.value.clone()),
+            None => Ok(NULL),
+        }
     } else {
         Ok(new_error(format!("index operator not supported: {}", left)))
     }
@@ -628,6 +640,7 @@ mod tests {
             ("push(1, 2)".to_string(), "first argument to 'push' not supported, got: 1".to_string()),
             ("push(\"one\")".to_string(), "wrong number of arguments, got: 1, want: 2".to_string()),
             ("{ [2]: true }".to_string(), "unusable as hash key: [2]".to_string()),
+            ("{ true: true }[[2]]".to_string(), "unusable as hash key: [2]".to_string()),
         ];
 
         for tt in tests {
@@ -823,11 +836,18 @@ mod tests {
             ("let myArray = [1, 2, 3]; myArray[2];".to_string(), 3),
             ("let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];".to_string(), 6),
             ("let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]".to_string(), 2),
+            ("{\"foo\": 5}[\"foo\"]".to_string(), 5),
+            (r#"let key = "foo"; {"foo": 5}[key]"#.to_string(), 5),
+            (r#"{5: 5}[5]"#.to_string(), 5),
+            ("{true: 5}[true]".to_string(), 5),
+            ("{false: 5}[false]".to_string(), 5),
         ];
 
         let nil_tests = vec![
             "[1, 2, 3][3]".to_string(),
             "[1, 2, 3][-1]".to_string(),
+            r#"{"foo": 5}["bar"]"#.to_string(),
+            r#"{}["foo"]"#.to_string(),
         ];
 
         for tt in tests {
