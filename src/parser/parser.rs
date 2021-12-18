@@ -52,6 +52,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         p.register_prefix(TokenType::STRING, Self::parse_string_expression);
         p.register_prefix(TokenType::LBRACKET, Self::parse_array_expression);
         p.register_prefix(TokenType::LBRACE, Self::parse_hash_expression);
+        p.register_prefix(TokenType::MACRO, Self::parse_macro_expression);
 
         p.register_infix(TokenType::PLUS, Self::parse_infix_expression);
         p.register_infix(TokenType::MINUS, Self::parse_infix_expression);
@@ -394,6 +395,26 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
                 HashLiteral {
                     token,
                     pairs,
+                }
+            )
+        )
+    }
+
+    fn parse_macro_expression(&mut self) -> Option<Expr> {
+        let token = self.tok.clone();
+        self.expect_peek(TokenType::LPAREN)?;
+
+        let params = self.parse_function_parameters();
+        self.expect_peek(TokenType::LBRACE)?;
+
+        let body = self.parse_block_statement()?;
+
+        Some(
+            Expr::Macro(
+                MacroLiteral {
+                    token,
+                    params,
+                    body,
                 }
             )
         )
@@ -1352,6 +1373,38 @@ mod tests {
                 test_infix_expression(three, &i_to_expr(15), "/".to_string(), &i_to_expr(5))?;
             } else {
                 panic!("Expected hash expression, got: {}", e);
+            }
+        } else {
+            panic!("Expected hash expression");
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_macro_literals() -> Result<()> {
+        let input = b"macro(x, y) { x + y; }".to_vec();
+        let program = parse(input.bytes())?;
+        assert_eq!(1, program.stmts.len());
+
+        if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
+            if let Expr::Macro(m) = &e.expr {
+                assert_eq!(2, m.params.len());
+                assert_eq!(1, m.body.stmts.len());
+
+                let x = l_to_expr("x".to_string());
+                let y = l_to_expr("y".to_string());
+
+                test_literal_expression(&x, &Expr::Ident(m.params.get(0).unwrap().clone()))?;
+                test_literal_expression(&y, &Expr::Ident(m.params.get(1).unwrap().clone()))?;
+
+                if let Stmt::Expression(stmt) = m.body.stmts.get(0).unwrap() {
+                    test_infix_expression(&stmt.expr, &x, "+".to_string(), &y)?;
+                } else {
+                    panic!("Expected expression statement");
+                }
+            } else {
+                panic!("Expected Macro expression, got: {}", e);
             }
         } else {
             panic!("Expected hash expression");

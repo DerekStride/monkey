@@ -530,6 +530,39 @@ impl fmt::Display for IndexOperation {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct MacroLiteral {
+    pub token: Token,
+    pub params: Vec<Identifier>,
+    pub body: BlockStatement,
+}
+
+impl Node for MacroLiteral {
+    fn token_literal(&self) -> String {
+        self.token.literal.clone()
+    }
+}
+
+impl Expression for MacroLiteral {
+    fn expr_node(&self) {
+    }
+}
+
+impl fmt::Display for MacroLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "macro({}) {{{}}}",
+            self.params
+                .iter()
+                .map(|p| format!("{}", p))
+                .collect::<Vec<String>>()
+                .join(", "),
+            self.body,
+        )
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub enum Expr {
     Ident(Identifier),
     Int(IntegerLiteral),
@@ -537,6 +570,7 @@ pub enum Expr {
     Str(StringLiteral),
     Array(ArrayLiteral),
     Hash(HashLiteral),
+    Macro(MacroLiteral),
     Pre(Prefix),
     In(Infix),
     If(IfExpression),
@@ -554,6 +588,7 @@ impl Node for Expr {
             Expr::Str(x) => x.token_literal(),
             Expr::Array(x) => x.token_literal(),
             Expr::Hash(x) => x.token_literal(),
+            Expr::Macro(x) => x.token_literal(),
             Expr::Pre(x) => x.token_literal(),
             Expr::In(x) => x.token_literal(),
             Expr::If(x) => x.token_literal(),
@@ -573,6 +608,7 @@ impl Expression for Expr {
             Expr::Str(x) => x.expr_node(),
             Expr::Array(x) => x.expr_node(),
             Expr::Hash(x) => x.expr_node(),
+            Expr::Macro(x) => x.expr_node(),
             Expr::Pre(x) => x.expr_node(),
             Expr::In(x) => x.expr_node(),
             Expr::If(x) => x.expr_node(),
@@ -592,6 +628,7 @@ impl fmt::Display for Expr {
             Expr::Str(x) => write!(f, "{}", x),
             Expr::Array(x) => write!(f, "{}", x),
             Expr::Hash(x) => write!(f, "{}", x),
+            Expr::Macro(x) => write!(f, "{}", x),
             Expr::Pre(x) => write!(f, "{}", x),
             Expr::In(x) => write!(f, "{}", x),
             Expr::If(x) => write!(f, "{}", x),

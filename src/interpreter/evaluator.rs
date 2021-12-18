@@ -148,6 +148,9 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                 Expr::Hash(h) => {
                     eval_hash_literal_expression(h, env)
                 },
+                Expr::Macro(m) => {
+                    Ok(new_error(format!("Macro not expanded: {}", m)))
+                }
             }
         },
     }
