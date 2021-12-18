@@ -7,7 +7,7 @@ use crate::{
         builtin::Builtin,
         environment::Environment,
     },
-    ast::*,
+    ast::*, lexer::{token::Token, token_type::TokenType},
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -98,7 +98,7 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                 },
                 Expr::Call(func_call) => {
                     if func_call.function.token_literal() == "quote" {
-                        return quote(func_call.args.get(0));
+                        return quote(func_call.args.get(0), env);
                     };
 
                     let function = eval(MNode::Expr(*func_call.function), env)?;
@@ -429,9 +429,9 @@ fn eval_hash_literal_expression(h: HashLiteral, env: &mut Environment) -> Result
     )
 }
 
-fn quote(arg: Option<&Expr>) -> Result<MObject> {
+fn quote(arg: Option<&Expr>, env: &mut Environment) -> Result<MObject> {
     let node = if let Some(expr) = arg {
-        MNode::Expr(expr.clone())
+        eval_unquote_calls(expr.clone(), env)
     } else {
         return Ok(new_error("argument required for quote, got: null".to_string()));
     };
@@ -443,6 +443,73 @@ fn quote(arg: Option<&Expr>) -> Result<MObject> {
             }
         )
     )
+}
+
+fn eval_unquote_calls(node: Expr, env: &mut Environment) -> MNode {
+    // MNode::Expr(node)
+    crate::ast::modify(MNode::Expr(node), env, |node: MNode, env: &mut Environment| -> MNode {
+        if !is_unquote_call(&node) { return node; };
+
+        let call = match node {
+            MNode::Expr(Expr::Call(ref c)) => c,
+            _ => return node,
+        };
+
+        if call.args.len() != 1 { return node; };
+
+        if let Some(arg) = call.args.get(0) {
+            match eval(MNode::Expr(arg.clone()), env) {
+                Ok(obj) => convert_obj_to_ast_node(obj),
+                _ => node,
+            }
+        } else {
+            node
+        }
+    })
+}
+
+fn convert_obj_to_ast_node(obj: MObject) -> MNode {
+    match obj {
+        MObject::Int(x) => MNode::Expr(
+            Expr::Int(
+                IntegerLiteral {
+                    token: Token { token_type: TokenType::INT, literal: format!("{}", x.value) },
+                    value: x.value,
+                }
+            )
+        ),
+        MObject::Bool(x) => {
+            let token = if x.value {
+                Token { token_type: TokenType::TRUE, literal: "true".to_string() }
+            } else {
+                Token { token_type: TokenType::FALSE, literal: "false".to_string() }
+            };
+            MNode::Expr(
+                Expr::Bool(
+                    BooleanLiteral {
+                        token,
+                        value: x.value,
+                    },
+                ),
+            )
+        },
+        MObject::Quote(q) => q.node,
+        _ => MNode::Expr(
+            Expr::Int(
+                IntegerLiteral {
+                    token: Token { token_type: TokenType::INT, literal: format!("{}", 0) },
+                    value: 0,
+                }
+            )
+        ),
+    }
+}
+
+fn is_unquote_call(node: &MNode) -> bool {
+    match node {
+        MNode::Expr(Expr::Call(c)) => c.function.token_literal() == "unquote",
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -981,6 +1048,11 @@ mod tests {
             ("quote(unquote(4 + 4))".to_string(), "8".to_string()),
             ("quote(8 + unquote(4 + 4))".to_string(), "(8 + 8)".to_string()),
             ("quote(unquote(4 + 4) + 8)".to_string(), "(8 + 8)".to_string()),
+            ("let foobar = 8; quote(unquote(foobar) + 8)".to_string(), "(8 + 8)".to_string()),
+            ("quote(unquote(true))".to_string(), "true".to_string()),
+            ("quote(unquote(true == false))".to_string(), "false".to_string()),
+            ("quote(unquote(quote(4 + 4)))".to_string(), "(4 + 4)".to_string()),
+            ("let quotedInfixExpression = quote(4 + 4); quote(unquote(4 + 4) + unquote(quotedInfixExpression))".to_string(), "(8 + (4 + 4))".to_string()),
         ];
 
         for tt in tests {
