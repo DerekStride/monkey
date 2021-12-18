@@ -331,7 +331,7 @@ impl fmt::Display for ArrayLiteral {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct HashLiteral {
     pub token: Token,
     pub pairs: HashMap<Expr, Expr>,
@@ -341,14 +341,6 @@ impl Hash for HashLiteral {
     fn hash<H: Hasher>(&self, _state: &mut H) {
     }
 }
-
-impl PartialEq for HashLiteral {
-    fn eq(&self, _other: &Self) -> bool {
-        false
-    }
-}
-
-impl Eq for HashLiteral {}
 
 impl Node for HashLiteral {
     fn token_literal(&self) -> String {
@@ -614,7 +606,7 @@ fn modify(node: MNode, modifier: fn(MNode) -> MNode) -> MNode {
     match node {
         MNode::Prog(p) => {
             let mut prog = p.clone();
-            let modified = prog.stmts
+            prog.stmts = prog.stmts
                 .iter()
                 .map(|stmt| {
                     match modify(MNode::Stmt(stmt.clone()), modifier) {
@@ -623,7 +615,7 @@ fn modify(node: MNode, modifier: fn(MNode) -> MNode) -> MNode {
                     }
                 })
                 .collect::<Vec<Stmt>>();
-            prog.stmts = modified;
+
             MNode::Prog(prog)
         },
         MNode::Stmt(s) => {
@@ -638,10 +630,190 @@ fn modify(node: MNode, modifier: fn(MNode) -> MNode) -> MNode {
                         _ => MNode::Stmt(s.clone()),
                     }
                 },
-                _ => MNode::Stmt(s.clone()),
+                Stmt::Block(b) => {
+                    let mut block = b.clone();
+                    block.stmts = block.stmts
+                        .iter()
+                        .map(|stmt| {
+                            match modify(MNode::Stmt(stmt.clone()), modifier) {
+                                MNode::Stmt(x) => x,
+                                _ => stmt.clone(),
+                            }
+                        })
+                    .collect::<Vec<Stmt>>();
+
+                    MNode::Stmt(Stmt::Block(block))
+                },
+                Stmt::Return(r) => {
+                    let mut ret = r.clone();
+                    let retval = ret.retval;
+                    ret.retval = match modify(MNode::Expr(retval.clone()), modifier) {
+                        MNode::Expr(x) => x,
+                        _ => retval,
+                    };
+
+                    MNode::Stmt(Stmt::Return(ret))
+                },
+                Stmt::Let(l) => {
+                    let mut let_stmt = l.clone();
+                    let value = let_stmt.value;
+
+                    let_stmt.value = match modify(MNode::Expr(value.clone()), modifier) {
+                        MNode::Expr(x) => x,
+                        _ => value,
+                    };
+
+                    MNode::Stmt(Stmt::Let(let_stmt))
+                },
             }
         },
-        _ => modifier(node),
+        MNode::Expr(ref e) => {
+            match e {
+                Expr::In(i) => {
+                    let mut infix = i.clone();
+                    let left = *infix.left;
+                    infix.left = match modify(MNode::Expr(left.clone()), modifier) {
+                        MNode::Expr(x) => Box::new(x),
+                        _ => Box::new(left),
+                    };
+
+                    let right = *infix.right;
+                    infix.right = match modify(MNode::Expr(right.clone()), modifier) {
+                        MNode::Expr(x) => Box::new(x),
+                        _ => Box::new(right),
+                    };
+
+                    MNode::Expr(Expr::In(infix))
+                },
+                Expr::Pre(p) => {
+                    let mut prefix = p.clone();
+
+                    let right = *prefix.right;
+                    prefix.right = match modify(MNode::Expr(right.clone()), modifier) {
+                        MNode::Expr(x) => Box::new(x),
+                        _ => Box::new(right),
+                    };
+
+                    MNode::Expr(Expr::Pre(prefix))
+                },
+                Expr::Index(i) => {
+                    let mut index_expr = i.clone();
+                    let left = *index_expr.left;
+                    index_expr.left = match modify(MNode::Expr(left.clone()), modifier) {
+                        MNode::Expr(x) => Box::new(x),
+                        _ => Box::new(left),
+                    };
+
+                    let index = *index_expr.index;
+                    index_expr.index = match modify(MNode::Expr(index.clone()), modifier) {
+                        MNode::Expr(x) => Box::new(x),
+                        _ => Box::new(index),
+                    };
+
+                    MNode::Expr(Expr::Index(index_expr))
+                },
+                Expr::If(i) => {
+                    let mut if_expr = i.clone();
+                    let condition = *if_expr.condition;
+                    if_expr.condition = match modify(MNode::Expr(condition.clone()), modifier) {
+                        MNode::Expr(x) => Box::new(x),
+                        _ => Box::new(condition),
+                    };
+
+                    let consequence = if_expr.consequence;
+                    if_expr.consequence = match modify(MNode::Stmt(Stmt::Block(consequence.clone())), modifier) {
+                        MNode::Stmt(x) => {
+                            match x {
+                                Stmt::Block(b) => b,
+                                _ => consequence,
+                            }
+                        },
+                        _ => consequence,
+                    };
+
+                    if let Some(alternative) = if_expr.alternative {
+                        if_expr.alternative = match modify(MNode::Stmt(Stmt::Block(alternative.clone())), modifier) {
+                            MNode::Stmt(x) => {
+                                match x {
+                                    Stmt::Block(b) => Some(b),
+                                    _ => Some(alternative),
+                                }
+                            },
+                            _ => Some(alternative),
+                        };
+                    }
+
+                    MNode::Expr(Expr::If(if_expr))
+                },
+                Expr::Fn(f) => {
+                    let mut func = f.clone();
+                    func.params = func.params
+                        .iter()
+                        .map(|ident| {
+                            match modify(MNode::Expr(Expr::Ident(ident.clone())), modifier) {
+                                MNode::Expr(e) => {
+                                    match e {
+                                        Expr::Ident(i) => i,
+                                        _ => ident.clone(),
+                                    }
+                                },
+                                _ => ident.clone(),
+                            }
+                        })
+                    .collect::<Vec<Identifier>>();
+
+                    let block = func.body;
+                    func.body = match modify(MNode::Stmt(Stmt::Block(block.clone())), modifier) {
+                        MNode::Stmt(x) => {
+                            match x {
+                                Stmt::Block(b) => b,
+                                _ => block,
+                            }
+                        },
+                        _ => block,
+                    };
+
+                    MNode::Expr(Expr::Fn(func))
+                },
+                Expr::Array(a) => {
+                    let mut array = a.clone();
+                    array.elements = array.elements
+                        .iter()
+                        .map(|expr| {
+                            match modify(MNode::Expr(expr.clone()), modifier) {
+                                MNode::Expr(e) => e,
+                                _ => expr.clone(),
+                            }
+                        })
+                    .collect::<Vec<Expr>>();
+
+                    MNode::Expr(Expr::Array(array))
+                },
+                Expr::Hash(h) => {
+                    let mut hash = h.clone();
+                    hash.pairs = hash.pairs
+                        .iter()
+                        .map(|(key, value)| {
+                            let new_key = match modify(MNode::Expr(key.clone()), modifier) {
+                                MNode::Expr(e) => e,
+                                _ => key.clone(),
+                            };
+
+                            let new_value = match modify(MNode::Expr(value.clone()), modifier) {
+                                MNode::Expr(v) => v,
+                                _ => value.clone(),
+                            };
+
+                            (new_key, new_value)
+
+                        })
+                    .collect::<HashMap<Expr, Expr>>();
+
+                    MNode::Expr(Expr::Hash(hash))
+                },
+                _ => modifier(node),
+            }
+        },
     }
 }
 
@@ -702,6 +874,280 @@ mod tests {
                             ),
                         ],
                     },
+                ),
+            ),
+            (
+                MNode::Expr(
+                    Expr::In(
+                        Infix {
+                            token: Token { token_type: TokenType::PLUS, literal: "+".to_string() },
+                            left: Box::new(one()),
+                            operator: "+".to_string(),
+                            right: Box::new(two()),
+                        },
+                    ),
+                ),
+                MNode::Expr(
+                    Expr::In(
+                        Infix {
+                            token: Token { token_type: TokenType::PLUS, literal: "+".to_string() },
+                            left: Box::new(two()),
+                            operator: "+".to_string(),
+                            right: Box::new(two()),
+                        },
+                    ),
+                ),
+            ),
+            (
+                MNode::Expr(
+                    Expr::In(
+                        Infix {
+                            token: Token { token_type: TokenType::PLUS, literal: "+".to_string() },
+                            left: Box::new(two()),
+                            operator: "+".to_string(),
+                            right: Box::new(one()),
+                        },
+                    ),
+                ),
+                MNode::Expr(
+                    Expr::In(
+                        Infix {
+                            token: Token { token_type: TokenType::PLUS, literal: "+".to_string() },
+                            left: Box::new(two()),
+                            operator: "+".to_string(),
+                            right: Box::new(two()),
+                        },
+                    ),
+                ),
+            ),
+            (
+                MNode::Expr(
+                    Expr::Pre(
+                        Prefix {
+                            token: Token { token_type: TokenType::MINUS, literal: "-".to_string() },
+                            operator: "-".to_string(),
+                            right: Box::new(one()),
+                        },
+                    ),
+                ),
+                MNode::Expr(
+                    Expr::Pre(
+                        Prefix {
+                            token: Token { token_type: TokenType::MINUS, literal: "-".to_string() },
+                            operator: "-".to_string(),
+                            right: Box::new(two()),
+                        },
+                    ),
+                ),
+            ),
+            (
+                MNode::Expr(
+                    Expr::Index(
+                        IndexOperation {
+                            token: Token { token_type: TokenType::LBRACKET, literal: "[".to_string() },
+                            left: Box::new(one()),
+                            index: Box::new(one()),
+                        },
+                    ),
+                ),
+                MNode::Expr(
+                    Expr::Index(
+                        IndexOperation {
+                            token: Token { token_type: TokenType::LBRACKET, literal: "[".to_string() },
+                            left: Box::new(two()),
+                            index: Box::new(two()),
+                        },
+                    ),
+                ),
+            ),
+            (
+                MNode::Expr(
+                    Expr::If(
+                        IfExpression {
+                            token: Token { token_type: TokenType::IF, literal: "if".to_string() },
+                            condition: Box::new(one()),
+                            consequence: BlockStatement {
+                                token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },
+                                stmts: vec![
+                                    Stmt::Expression(
+                                        ExpressionStatement {
+                                            token: Token { token_type: TokenType::INT, literal: "1".to_string() },
+                                            expr: one(),
+                                        },
+                                    ),
+                                ],
+                            },
+                            alternative: Some(
+                                BlockStatement {
+                                    token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },
+                                    stmts: vec![
+                                        Stmt::Expression(
+                                            ExpressionStatement {
+                                                token: Token { token_type: TokenType::INT, literal: "1".to_string() },
+                                                expr: one(),
+                                            },
+                                        ),
+                                    ],
+                                },
+                            ),
+                        },
+                    ),
+                ),
+                MNode::Expr(
+                    Expr::If(
+                        IfExpression {
+                            token: Token { token_type: TokenType::IF, literal: "if".to_string() },
+                            condition: Box::new(two()),
+                            consequence: BlockStatement {
+                                token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },
+                                stmts: vec![
+                                    Stmt::Expression(
+                                        ExpressionStatement {
+                                            token: Token { token_type: TokenType::INT, literal: "1".to_string() },
+                                            expr: two(),
+                                        },
+                                    ),
+                                ],
+                            },
+                            alternative: Some(
+                                BlockStatement {
+                                    token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },
+                                    stmts: vec![
+                                        Stmt::Expression(
+                                            ExpressionStatement {
+                                                token: Token { token_type: TokenType::INT, literal: "1".to_string() },
+                                                expr: two(),
+                                            },
+                                        ),
+                                    ],
+                                },
+                            ),
+                        },
+                    ),
+                ),
+            ),
+            (
+                MNode::Stmt(
+                    Stmt::Return(
+                        ReturnStatement {
+                            token: Token { token_type: TokenType::RBRACKET, literal: "return".to_string() },
+                            retval: one(),
+                        },
+                    ),
+                ),
+                MNode::Stmt(
+                    Stmt::Return(
+                        ReturnStatement {
+                            token: Token { token_type: TokenType::RBRACKET, literal: "return".to_string() },
+                            retval: two(),
+                        },
+                    ),
+                ),
+            ),
+            (
+                MNode::Stmt(
+                    Stmt::Let(
+                        LetStatement {
+                            token: Token { token_type: TokenType::LET, literal: "let".to_string() },
+                            name: Identifier {
+                                token: Token { token_type: TokenType::IDENT, literal: "a".to_string() },
+                                value: "a".to_string()
+                            },
+                            value: one(),
+                        },
+                    ),
+                ),
+                MNode::Stmt(
+                    Stmt::Let(
+                        LetStatement {
+                            token: Token { token_type: TokenType::LET, literal: "let".to_string() },
+                            name: Identifier {
+                                token: Token { token_type: TokenType::IDENT, literal: "a".to_string() },
+                                value: "a".to_string()
+                            },
+                            value: two(),
+                        },
+                    ),
+                ),
+            ),
+            (
+                MNode::Expr(
+                    Expr::Fn(
+                        FnLiteral {
+                            token: Token { token_type: TokenType::LET, literal: "let".to_string() },
+                            params: vec![],
+                            body: BlockStatement {
+                                token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },
+                                stmts: vec![
+                                    Stmt::Expression(
+                                        ExpressionStatement {
+                                            token: Token { token_type: TokenType::INT, literal: "1".to_string() },
+                                            expr: one(),
+                                        },
+                                    ),
+                                ],
+                            },
+                        },
+                    ),
+                ),
+                MNode::Expr(
+                    Expr::Fn(
+                        FnLiteral {
+                            token: Token { token_type: TokenType::LET, literal: "let".to_string() },
+                            params: vec![],
+                            body: BlockStatement {
+                                token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },
+                                stmts: vec![
+                                    Stmt::Expression(
+                                        ExpressionStatement {
+                                            token: Token { token_type: TokenType::INT, literal: "1".to_string() },
+                                            expr: two(),
+                                        },
+                                    ),
+                                ],
+                            },
+                        },
+                    ),
+                ),
+            ),
+            (
+                MNode::Expr(
+                    Expr::Array(
+                        ArrayLiteral {
+                            token: Token { token_type: TokenType::LBRACKET, literal: "[".to_string() },
+                            elements: vec![one()],
+                        },
+                    ),
+                ),
+                MNode::Expr(
+                    Expr::Array(
+                        ArrayLiteral {
+                            token: Token { token_type: TokenType::LBRACKET, literal: "[".to_string() },
+                            elements: vec![two()],
+                        },
+                    ),
+                ),
+            ),
+            (
+                MNode::Expr(
+                    Expr::Hash(
+                        HashLiteral {
+                            token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },
+                            pairs: HashMap::from([
+                                (one(), one()),
+                            ]),
+                        },
+                    ),
+                ),
+                MNode::Expr(
+                    Expr::Hash(
+                        HashLiteral {
+                            token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },
+                            pairs: HashMap::from([
+                                (two(), two()),
+                            ]),
+                        },
+                    ),
                 ),
             ),
         ];
