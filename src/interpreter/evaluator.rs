@@ -263,7 +263,7 @@ fn eval_program(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObject> {
     let mut result = if let Some(stmt) = stmts.get(0) {
         eval(MNode::Stmt(stmt.clone()), env)?
     } else {
-        return Err(Error::new("No statements in statement list.".to_string()))
+        return Ok(NULL)
     };
     if let MObject::Return(retval) = result {
         return Ok(*retval.value);
