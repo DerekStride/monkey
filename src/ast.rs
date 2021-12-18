@@ -610,10 +610,47 @@ impl fmt::Display for Expr {
     }
 }
 
+fn modify(node: MNode, modifier: fn(MNode) -> MNode) -> MNode {
+    match node {
+        MNode::Prog(p) => {
+            let mut prog = p.clone();
+            let modified = prog.stmts
+                .iter()
+                .map(|stmt| {
+                    match modify(MNode::Stmt(stmt.clone()), modifier) {
+                        MNode::Stmt(x) => x,
+                        _ => stmt.clone(),
+                    }
+                })
+                .collect::<Vec<Stmt>>();
+            prog.stmts = modified;
+            MNode::Prog(prog)
+        },
+        MNode::Stmt(s) => {
+            match s {
+                Stmt::Expression(ref e) => {
+                    let mut expr_stmt = e.clone();
+                    match modify(MNode::Expr(expr_stmt.expr), modifier) {
+                        MNode::Expr(x) => {
+                            expr_stmt.expr = x;
+                            MNode::Stmt(Stmt::Expression(expr_stmt))
+                        },
+                        _ => MNode::Stmt(s.clone()),
+                    }
+                },
+                _ => MNode::Stmt(s.clone()),
+            }
+        },
+        _ => modifier(node),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer::token_type::TokenType;
+    use crate::{lexer::token_type::TokenType, error::Error};
+
+    type Result<T> = std::result::Result<T, Error>;
 
     #[test]
     fn test_fmt_display() {
@@ -632,5 +669,61 @@ mod tests {
         }));
 
         assert_eq!("let myVar = anotherVar;", format!("{}", program));
+    }
+
+    #[test]
+    fn test_modify() -> Result<()> {
+        let one = || { Expr::Int(IntegerLiteral { token: Token { token_type: TokenType::INT, literal: "1".to_string() }, value: 1 }) };
+        let two = || { Expr::Int(IntegerLiteral { token: Token { token_type: TokenType::INT, literal: "1".to_string() }, value: 2 }) };
+
+        let tests = vec![
+            (MNode::Expr(one()), MNode::Expr(two())),
+            (
+                MNode::Prog(
+                    Program {
+                        stmts: vec![
+                            Stmt::Expression(
+                                ExpressionStatement {
+                                    token: Token { token_type: TokenType::INT, literal: "1".to_string() },
+                                    expr: one(),
+                                }
+                            ),
+                        ],
+                    },
+                ),
+                MNode::Prog(
+                    Program {
+                        stmts: vec![
+                            Stmt::Expression(
+                                ExpressionStatement {
+                                    token: Token { token_type: TokenType::INT, literal: "1".to_string() },
+                                    expr: two(),
+                                }
+                            ),
+                        ],
+                    },
+                ),
+            ),
+        ];
+
+        let turn_one_into_two = |node: MNode| -> MNode {
+            if let MNode::Expr(ref e) = node {
+                if let Expr::Int(i) = e {
+                    if i.value == 1 {
+                        let mut lit = i.clone();
+                        lit.value = 2;
+                        return MNode::Expr(Expr::Int(lit));
+                    };
+                }
+            }
+            node
+        };
+
+        for tt in tests {
+            let modified = modify(tt.0, turn_one_into_two);
+            assert_eq!(tt.1, modified);
+        };
+
+        Ok(())
     }
 }
