@@ -45,6 +45,7 @@ pub enum TokenType {
     IF,
     ELSE,
     RETURN,
+    MACRO,
 }
 
 pub fn compute_keyword_map(map: &mut HashMap<&'static str, TokenType>) {
@@ -56,6 +57,7 @@ pub fn compute_keyword_map(map: &mut HashMap<&'static str, TokenType>) {
         ("if", TokenType::IF),
         ("else", TokenType::ELSE),
         ("return", TokenType::RETURN),
+        ("macro", TokenType::MACRO),
     ];
 
     for t in keywords {

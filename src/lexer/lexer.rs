@@ -323,6 +323,7 @@ mod tests {
             "foo bar"
             [1, 2]
             {"foo": "bar"}
+            macro(x, y) { x + y; };
         "###.to_vec();
         let l = &mut lex(input.bytes());
 
@@ -376,6 +377,19 @@ mod tests {
             Expected { expected_type: TokenType::COLON, expected_literal: ":".to_string() },
             Expected { expected_type: TokenType::STRING, expected_literal: "bar".to_string() },
             Expected { expected_type: TokenType::RBRACE, expected_literal: "}".to_string() },
+            Expected { expected_type: TokenType::MACRO, expected_literal: "macro".to_string() },
+            Expected { expected_type: TokenType::LPAREN, expected_literal: "(".to_string() },
+            Expected { expected_type: TokenType::IDENT, expected_literal: "x".to_string() },
+            Expected { expected_type: TokenType::COMMA, expected_literal: ",".to_string() },
+            Expected { expected_type: TokenType::IDENT, expected_literal: "y".to_string() },
+            Expected { expected_type: TokenType::RPAREN, expected_literal: ")".to_string() },
+            Expected { expected_type: TokenType::LBRACE, expected_literal: "{".to_string() },
+            Expected { expected_type: TokenType::IDENT, expected_literal: "x".to_string() },
+            Expected { expected_type: TokenType::PLUS, expected_literal: "+".to_string() },
+            Expected { expected_type: TokenType::IDENT, expected_literal: "y".to_string() },
+            Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
+            Expected { expected_type: TokenType::RBRACE, expected_literal: "}".to_string() },
+            Expected { expected_type: TokenType::SEMICOLON, expected_literal: ";".to_string() },
             Expected { expected_type: TokenType::EOF, expected_literal: "".to_string() },
         ];
 

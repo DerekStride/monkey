@@ -1,5 +1,5 @@
 use crate::{
-    ast,
+    ast::{self, MNode},
     interpreter::{
         builtin::Builtin,
         environment::Environment,
@@ -143,6 +143,39 @@ impl fmt::Display for Function {
     }
 }
 
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct Quote {
+    pub node: MNode,
+}
+
+impl fmt::Display for Quote {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "QUOTE({})", self.node)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Macro {
+    pub params: Vec<ast::Identifier>,
+    pub body: ast::BlockStatement,
+    pub env: Environment,
+}
+
+impl fmt::Display for Macro {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "macro({}) {{\n{}\n}}",
+            self.params
+                .iter()
+                .map(|p| format!("{}", p))
+                .collect::<Vec<String>>()
+                .join(", "),
+            self.body,
+        )
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum MObject {
     Int(Integer),
@@ -154,6 +187,8 @@ pub enum MObject {
     Err(MError),
     Fn(Function),
     Builtin(Builtin),
+    Quote(Quote),
+    Macro(Macro),
     Null,
 }
 
@@ -169,6 +204,8 @@ impl fmt::Display for MObject {
             MObject::Err(x) => write!(f, "{}", x),
             MObject::Fn(x) => write!(f, "{}", x),
             MObject::Builtin(x) => write!(f, "{}", x),
+            MObject::Quote(x) => write!(f, "{}", x),
+            MObject::Macro(x) => write!(f, "{}", x),
             MObject::Null => write!(f, "null"),
         }
     }

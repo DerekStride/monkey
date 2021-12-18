@@ -7,7 +7,7 @@ use crate::{
         builtin::Builtin,
         environment::Environment,
     },
-    ast::*,
+    ast::*, lexer::{token::Token, token_type::TokenType},
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -38,6 +38,109 @@ fn new_error(value: String) -> MObject {
             value,
         }
     )
+}
+
+fn is_macro_definition(statement: &Stmt) -> bool {
+    match statement {
+        Stmt::Let(stmt) => {
+            match stmt.value {
+                Expr::Macro(_) => true,
+                _ => false,
+            }
+        },
+        _ => false,
+    }
+}
+
+fn add_macro(statement: &Stmt, env: &mut Environment) {
+    match statement {
+        Stmt::Let(stmt) => {
+            match stmt.value {
+                Expr::Macro(ref x) => {
+                    let macro_lit = Macro {
+                        params: x.params.clone(),
+                        body: x.body.clone(),
+                        env: env.clone(),
+                    };
+                    env.insert(stmt.name.value.clone(), MObject::Macro(macro_lit));
+                },
+                _ => {},
+            }
+        },
+        _ => {},
+    };
+}
+
+pub fn define_macros(program: &mut Program, env: &mut Environment) {
+    let mut definitions = vec![];
+
+    for (i, statement) in program.stmts.iter().enumerate() {
+        if is_macro_definition(statement) {
+            add_macro(statement, env);
+            definitions.push(i);
+        }
+    }
+
+    for i in definitions {
+        program.stmts.remove(i);
+    }
+}
+
+fn is_macro_call(call: &FnCall, env: &mut Environment) -> Option<Macro> {
+    if let Expr::Ident(ident) = &*call.function {
+        if let Some(MObject::Macro(obj)) = env.get(&ident.value) {
+            return Some(obj.clone());
+        };
+    };
+    None
+}
+
+fn quote_args(call: FnCall) -> Vec<Quote> {
+    let mut args = vec![];
+
+    for arg in call.args {
+        args.push(Quote { node: MNode::Expr(arg) });
+    };
+
+    args
+}
+
+fn extend_macro_env(mac: Macro, args: Vec<Quote>) -> Environment {
+    let mut extended = Environment::enclose(mac.env);
+
+    for (i, param) in mac.params.iter().enumerate() {
+        if let Some(arg) = args.get(i) {
+            extended.insert(param.value.clone(), MObject::Quote(arg.clone()));
+        };
+    };
+
+    extended
+}
+
+pub fn expand_macros(program: Program, env: &mut Environment) -> MNode {
+    crate::ast::modify(MNode::Prog(program), env, |node: MNode, env: &mut Environment| -> MNode {
+        match node {
+            MNode::Expr(Expr::Call(ref c)) => {
+                let mac = if let Some(m) = is_macro_call(c, env) {
+                    m
+                } else {
+                    return node;
+                };
+
+                let args = quote_args(c.clone());
+                let mut eval_env = extend_macro_env(mac.clone(), args);
+
+                let evaluated = eval(MNode::Stmt(Stmt::Block(mac.body)), &mut eval_env);
+
+                if let Ok(MObject::Quote(q)) = evaluated {
+                    return q.node;
+                } else {
+                    panic!("we only support return AST-nodes from macros");
+                }
+            },
+            _ => return node,
+        }
+    })
 }
 
 pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
@@ -97,6 +200,10 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                     )
                 },
                 Expr::Call(func_call) => {
+                    if func_call.function.token_literal() == "quote" {
+                        return quote(func_call.args.get(0), env);
+                    };
+
                     let function = eval(MNode::Expr(*func_call.function), env)?;
                     if let MObject::Err(_) = function { return Ok(function); };
 
@@ -144,6 +251,9 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                 Expr::Hash(h) => {
                     eval_hash_literal_expression(h, env)
                 },
+                Expr::Macro(m) => {
+                    Ok(new_error(format!("Macro not expanded: {}", m)))
+                }
             }
         },
     }
@@ -153,7 +263,7 @@ fn eval_program(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObject> {
     let mut result = if let Some(stmt) = stmts.get(0) {
         eval(MNode::Stmt(stmt.clone()), env)?
     } else {
-        return Err(Error::new("No statements in statement list.".to_string()))
+        return Ok(NULL)
     };
     if let MObject::Return(retval) = result {
         return Ok(*retval.value);
@@ -425,6 +535,89 @@ fn eval_hash_literal_expression(h: HashLiteral, env: &mut Environment) -> Result
     )
 }
 
+fn quote(arg: Option<&Expr>, env: &mut Environment) -> Result<MObject> {
+    let node = if let Some(expr) = arg {
+        eval_unquote_calls(expr.clone(), env)
+    } else {
+        return Ok(new_error("argument required for quote, got: null".to_string()));
+    };
+
+    Ok(
+        MObject::Quote(
+            Quote {
+                node,
+            }
+        )
+    )
+}
+
+fn eval_unquote_calls(node: Expr, env: &mut Environment) -> MNode {
+    // MNode::Expr(node)
+    crate::ast::modify(MNode::Expr(node), env, |node: MNode, env: &mut Environment| -> MNode {
+        if !is_unquote_call(&node) { return node; };
+
+        let call = match node {
+            MNode::Expr(Expr::Call(ref c)) => c,
+            _ => return node,
+        };
+
+        if call.args.len() != 1 { return node; };
+
+        if let Some(arg) = call.args.get(0) {
+            match eval(MNode::Expr(arg.clone()), env) {
+                Ok(obj) => convert_obj_to_ast_node(obj),
+                _ => node,
+            }
+        } else {
+            node
+        }
+    })
+}
+
+fn convert_obj_to_ast_node(obj: MObject) -> MNode {
+    match obj {
+        MObject::Int(x) => MNode::Expr(
+            Expr::Int(
+                IntegerLiteral {
+                    token: Token { token_type: TokenType::INT, literal: format!("{}", x.value) },
+                    value: x.value,
+                }
+            )
+        ),
+        MObject::Bool(x) => {
+            let token = if x.value {
+                Token { token_type: TokenType::TRUE, literal: "true".to_string() }
+            } else {
+                Token { token_type: TokenType::FALSE, literal: "false".to_string() }
+            };
+            MNode::Expr(
+                Expr::Bool(
+                    BooleanLiteral {
+                        token,
+                        value: x.value,
+                    },
+                ),
+            )
+        },
+        MObject::Quote(q) => q.node,
+        _ => MNode::Expr(
+            Expr::Int(
+                IntegerLiteral {
+                    token: Token { token_type: TokenType::INT, literal: format!("{}", 0) },
+                    value: 0,
+                }
+            )
+        ),
+    }
+}
+
+fn is_unquote_call(node: &MNode) -> bool {
+    match node {
+        MNode::Expr(Expr::Call(c)) => c.function.token_literal() == "unquote",
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,6 +835,7 @@ mod tests {
             ("push(\"one\")".to_string(), "wrong number of arguments, got: 1, want: 2".to_string()),
             ("{ [2]: true }".to_string(), "unusable as hash key: [2]".to_string()),
             ("{ true: true }[[2]]".to_string(), "unusable as hash key: [2]".to_string()),
+            ("quote()".to_string(), "argument required for quote, got: null".to_string()),
         ];
 
         for tt in tests {
@@ -923,6 +1117,147 @@ mod tests {
         } else {
             panic!("Expected hash literal, got: {}", evaluated);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_quote() -> Result<()> {
+        let tests = vec![
+            ("quote(5)".to_string(), "5".to_string()),
+            ("quote(5 + 8)".to_string(), "(5 + 8)".to_string()),
+            ("quote(foobar)".to_string(), "foobar".to_string()),
+            ("quote(foobar + barfoo)".to_string(), "(foobar + barfoo)".to_string()),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+
+            if let MObject::Quote(quote) = evaluated {
+                assert_eq!(tt.1, format!("{}", quote.node));
+            } else {
+                panic!("expected quote object, got: {}", evaluated);
+            };
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_unquote() -> Result<()> {
+        let tests = vec![
+            ("quote(5)".to_string(), "5".to_string()),
+            ("quote(5 + 8)".to_string(), "(5 + 8)".to_string()),
+            ("quote(foobar)".to_string(), "foobar".to_string()),
+            ("quote(foobar + barfoo)".to_string(), "(foobar + barfoo)".to_string()),
+            ("quote(unquote(4))".to_string(), "4".to_string()),
+            ("quote(unquote(4 + 4))".to_string(), "8".to_string()),
+            ("quote(8 + unquote(4 + 4))".to_string(), "(8 + 8)".to_string()),
+            ("quote(unquote(4 + 4) + 8)".to_string(), "(8 + 8)".to_string()),
+            ("let foobar = 8; quote(unquote(foobar) + 8)".to_string(), "(8 + 8)".to_string()),
+            ("quote(unquote(true))".to_string(), "true".to_string()),
+            ("quote(unquote(true == false))".to_string(), "false".to_string()),
+            ("quote(unquote(quote(4 + 4)))".to_string(), "(4 + 4)".to_string()),
+            ("let quotedInfixExpression = quote(4 + 4); quote(unquote(4 + 4) + unquote(quotedInfixExpression))".to_string(), "(8 + (4 + 4))".to_string()),
+        ];
+
+        for tt in tests {
+            let evaluated = test_eval(tt.0)?;
+
+            if let MObject::Quote(quote) = evaluated {
+                assert_eq!(tt.1, format!("{}", quote.node));
+            } else {
+                panic!("expected quote object, got: {}", evaluated);
+            };
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_define_macros() -> Result<()> {
+        let input = r#"
+            let number = 1;
+            let function = fn(x, y) { x + y };
+            let mymacro = macro(x, y) { x + y; };
+        "#.to_string();
+
+        let lex = Lexer::new(input.as_bytes().bytes().peekable())?;
+        let mut parser = Parser::new(lex.peekable())?;
+        let mut program = parser.parse()?;
+
+        check_parser_errors(parser)?;
+        let mut env = Environment::new();
+
+        define_macros(&mut program, &mut env);
+
+        assert_eq!(2, program.stmts.len());
+
+        assert!(env.get(&"number".to_string()).is_none());
+        assert!(env.get(&"function".to_string()).is_none());
+        assert!(env.get(&"mymacro".to_string()).is_some());
+        let mymacro = if let Some(MObject::Macro(m)) = env.get(&"mymacro".to_string()) {
+            m
+        } else {
+            panic!("mymacro is undefined");
+        };
+
+        assert_eq!(2, mymacro.params.len());
+        assert_eq!("x", mymacro.params.get(0).unwrap().value);
+        assert_eq!("y", mymacro.params.get(1).unwrap().value);
+
+        assert_eq!("(x + y)", format!("{}", mymacro.body));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_expand_macros() -> Result<()> {
+        let tests = vec![
+            (
+                r#"
+                let infixExpression = macro() { quote(1 + 2); };
+
+                infixExpression();
+                "#.to_string(),
+                "(1 + 2)".to_string(),
+            ),
+            (
+                r#"
+                let reverse = macro(a, b) { quote(unquote(b) - unquote(a)); };
+
+                reverse(2 + 2, 10 - 5);
+                "#.to_string(),
+                "((10 - 5) - (2 + 2))".to_string(),
+            ),
+            (
+                r#"
+                let unless = macro(condition, consequence, alternative) {
+                    quote(if (!(unquote(condition))) {
+                        unquote(consequence);
+                    } else {
+                        unquote(alternative);
+                    });
+                };
+
+                unless(10 > 5, puts("not greater"), puts("greater"));
+                "#.to_string(),
+                r#"if (!(10 > 5)) { puts("not greater") } else { puts("greater") }"#.to_string(),
+                ),
+        ];
+
+        for tt in tests {
+            let lex = Lexer::new(tt.0.as_bytes().bytes().peekable())?;
+            let mut parser = Parser::new(lex.peekable())?;
+            let mut program = parser.parse()?;
+
+            check_parser_errors(parser)?;
+            let mut env = Environment::new();
+
+            define_macros(&mut program, &mut env);
+            let expanded = expand_macros(program, &mut env);
+            assert_eq!(tt.1, format!("{}", expanded));
+        };
 
         Ok(())
     }
