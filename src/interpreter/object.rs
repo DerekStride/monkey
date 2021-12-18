@@ -155,6 +155,28 @@ impl fmt::Display for Quote {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Macro {
+    pub params: Vec<ast::Identifier>,
+    pub body: ast::BlockStatement,
+    pub env: Environment,
+}
+
+impl fmt::Display for Macro {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "macro({}) {{\n{}\n}}",
+            self.params
+                .iter()
+                .map(|p| format!("{}", p))
+                .collect::<Vec<String>>()
+                .join(", "),
+            self.body,
+        )
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum MObject {
     Int(Integer),
     Bool(Boolean),
@@ -166,6 +188,7 @@ pub enum MObject {
     Fn(Function),
     Builtin(Builtin),
     Quote(Quote),
+    Macro(Macro),
     Null,
 }
 
@@ -182,6 +205,7 @@ impl fmt::Display for MObject {
             MObject::Fn(x) => write!(f, "{}", x),
             MObject::Builtin(x) => write!(f, "{}", x),
             MObject::Quote(x) => write!(f, "{}", x),
+            MObject::Macro(x) => write!(f, "{}", x),
             MObject::Null => write!(f, "null"),
         }
     }

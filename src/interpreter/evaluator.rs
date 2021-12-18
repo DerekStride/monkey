@@ -40,6 +40,109 @@ fn new_error(value: String) -> MObject {
     )
 }
 
+fn is_macro_definition(statement: &Stmt) -> bool {
+    match statement {
+        Stmt::Let(stmt) => {
+            match stmt.value {
+                Expr::Macro(_) => true,
+                _ => false,
+            }
+        },
+        _ => false,
+    }
+}
+
+fn add_macro(statement: &Stmt, env: &mut Environment) {
+    match statement {
+        Stmt::Let(stmt) => {
+            match stmt.value {
+                Expr::Macro(ref x) => {
+                    let macro_lit = Macro {
+                        params: x.params.clone(),
+                        body: x.body.clone(),
+                        env: env.clone(),
+                    };
+                    env.insert(stmt.name.value.clone(), MObject::Macro(macro_lit));
+                },
+                _ => {},
+            }
+        },
+        _ => {},
+    };
+}
+
+pub fn define_macros(program: &mut Program, env: &mut Environment) {
+    let mut definitions = vec![];
+
+    for (i, statement) in program.stmts.iter().enumerate() {
+        if is_macro_definition(statement) {
+            add_macro(statement, env);
+            definitions.push(i);
+        }
+    }
+
+    for i in definitions {
+        program.stmts.remove(i);
+    }
+}
+
+fn is_macro_call(call: &FnCall, env: &mut Environment) -> Option<Macro> {
+    if let Expr::Ident(ident) = &*call.function {
+        if let Some(MObject::Macro(obj)) = env.get(&ident.value) {
+            return Some(obj.clone());
+        };
+    };
+    None
+}
+
+fn quote_args(call: FnCall) -> Vec<Quote> {
+    let mut args = vec![];
+
+    for arg in call.args {
+        args.push(Quote { node: MNode::Expr(arg) });
+    };
+
+    args
+}
+
+fn extend_macro_env(mac: Macro, args: Vec<Quote>) -> Environment {
+    let mut extended = Environment::enclose(mac.env);
+
+    for (i, param) in mac.params.iter().enumerate() {
+        if let Some(arg) = args.get(i) {
+            extended.insert(param.value.clone(), MObject::Quote(arg.clone()));
+        };
+    };
+
+    extended
+}
+
+pub fn expand_macros(program: Program, env: &mut Environment) -> MNode {
+    crate::ast::modify(MNode::Prog(program), env, |node: MNode, env: &mut Environment| -> MNode {
+        match node {
+            MNode::Expr(Expr::Call(ref c)) => {
+                let mac = if let Some(m) = is_macro_call(c, env) {
+                    m
+                } else {
+                    return node;
+                };
+
+                let args = quote_args(c.clone());
+                let mut eval_env = extend_macro_env(mac.clone(), args);
+
+                let evaluated = eval(MNode::Stmt(Stmt::Block(mac.body)), &mut eval_env);
+
+                if let Ok(MObject::Quote(q)) = evaluated {
+                    return q.node;
+                } else {
+                    panic!("we only support return AST-nodes from macros");
+                }
+            },
+            _ => return node,
+        }
+    })
+}
+
 pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
     match node {
         MNode::Prog(x) => {
@@ -1066,6 +1169,94 @@ mod tests {
             } else {
                 panic!("expected quote object, got: {}", evaluated);
             };
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_define_macros() -> Result<()> {
+        let input = r#"
+            let number = 1;
+            let function = fn(x, y) { x + y };
+            let mymacro = macro(x, y) { x + y; };
+        "#.to_string();
+
+        let lex = Lexer::new(input.as_bytes().bytes().peekable())?;
+        let mut parser = Parser::new(lex.peekable())?;
+        let mut program = parser.parse()?;
+
+        check_parser_errors(parser)?;
+        let mut env = Environment::new();
+
+        define_macros(&mut program, &mut env);
+
+        assert_eq!(2, program.stmts.len());
+
+        assert!(env.get(&"number".to_string()).is_none());
+        assert!(env.get(&"function".to_string()).is_none());
+        assert!(env.get(&"mymacro".to_string()).is_some());
+        let mymacro = if let Some(MObject::Macro(m)) = env.get(&"mymacro".to_string()) {
+            m
+        } else {
+            panic!("mymacro is undefined");
+        };
+
+        assert_eq!(2, mymacro.params.len());
+        assert_eq!("x", mymacro.params.get(0).unwrap().value);
+        assert_eq!("y", mymacro.params.get(1).unwrap().value);
+
+        assert_eq!("(x + y)", format!("{}", mymacro.body));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_expand_macros() -> Result<()> {
+        let tests = vec![
+            (
+                r#"
+                let infixExpression = macro() { quote(1 + 2); };
+
+                infixExpression();
+                "#.to_string(),
+                "(1 + 2)".to_string(),
+            ),
+            (
+                r#"
+                let reverse = macro(a, b) { quote(unquote(b) - unquote(a)); };
+
+                reverse(2 + 2, 10 - 5);
+                "#.to_string(),
+                "((10 - 5) - (2 + 2))".to_string(),
+            ),
+            (
+                r#"
+                let unless = macro(condition, consequence, alternative) {
+                    quote(if (!(unquote(condition))) {
+                        unquote(consequence);
+                    } else {
+                        unquote(alternative);
+                    });
+                };
+
+                unless(10 > 5, puts("not greater"), puts("greater"));
+                "#.to_string(),
+                r#"if (!(10 > 5)) { puts("not greater") } else { puts("greater") }"#.to_string(),
+                ),
+        ];
+
+        for tt in tests {
+            let lex = Lexer::new(tt.0.as_bytes().bytes().peekable())?;
+            let mut parser = Parser::new(lex.peekable())?;
+            let mut program = parser.parse()?;
+
+            check_parser_errors(parser)?;
+            let mut env = Environment::new();
+
+            define_macros(&mut program, &mut env);
+            let expanded = expand_macros(program, &mut env);
+            assert_eq!(tt.1, format!("{}", expanded));
         };
 
         Ok(())

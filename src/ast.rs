@@ -295,7 +295,7 @@ impl Expression for StringLiteral {
 
 impl fmt::Display for StringLiteral {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.value)
+        write!(f, "\"{}\"", self.value)
     }
 }
 
@@ -389,9 +389,9 @@ impl Expression for IfExpression {
 
 impl fmt::Display for IfExpression {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "if {} {}", self.condition, self.consequence)?;
+        write!(f, "if {} {{ {} }}", self.condition, self.consequence)?;
         if let Some(a) = &self.alternative {
-            write!(f, "else {}", a)?;
+            write!(f, " else {{ {} }}", a)?;
         };
         Ok(())
     }
@@ -551,7 +551,7 @@ impl fmt::Display for MacroLiteral {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "macro({}) {{{}}}",
+            "macro({}) {{\n{}\n}}",
             self.params
                 .iter()
                 .map(|p| format!("{}", p))
