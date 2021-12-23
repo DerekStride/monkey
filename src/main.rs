@@ -4,6 +4,7 @@ mod interpreter;
 mod parser;
 mod error;
 mod lexer;
+mod compiler;
 mod repl;
 mod ast;
 
