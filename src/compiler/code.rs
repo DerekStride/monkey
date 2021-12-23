@@ -4,56 +4,14 @@ use std::{
     ops::Index,
 };
 
-use byteorder::{ByteOrder, BigEndian};
+use byteorder::{BigEndian, WriteBytesExt};
 
 use crate::error::Error;
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
-enum Instruction {
-    Empty,
-    Three([u8; 3]),
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
-enum Operand {
-    U16(u16),
-}
-
-impl From<u16> for Operand {
-    fn from(item: u16) -> Self {
-        Operand::U16(item)
-    }
-}
-
-impl From<Operand> for u16 {
-    fn from(item: Operand) -> Self {
-        match item {
-            Operand::U16(x) => x,
-        }
-    }
-}
-
-impl Instruction {
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Empty => 0,
-            Self::Three(_) => 3,
-        }
-    }
-}
-
-impl Index<usize> for Instruction {
-    type Output = u8;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        match self {
-            Self::Empty => &0,
-            Self::Three(x) => &x[index],
-        }
-    }
-}
+pub type Instructions = Vec<u8>;
+pub type Operand = Vec<isize>;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
 pub enum Opcode {
@@ -66,12 +24,12 @@ pub struct Definition {
     operand_widths: Vec<u8>,
 }
 
-struct MCode {
+pub struct MCode {
     definitions: HashMap<Opcode, Definition>,
 }
 
 impl MCode {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let definitions = HashMap::from([
             (Opcode::OpConstant, Definition { name: "Opconstant".to_string(), operand_widths: vec![2] }),
         ]);
@@ -88,38 +46,29 @@ impl MCode {
         }
     }
 
-    pub fn make(&self, op: &Opcode, operands: &[Operand]) -> Instruction {
+    pub fn make(&self, op: &Opcode, operands: &Operand) -> Instructions {
+        let mut instruction = vec![];
         let def = match self.definitions.get(op) {
             Some(x) => x,
-            None => return Instruction::Empty,
+            None => return instruction,
         };
 
-        let mut instruction_len = 1;
+        instruction.push(*op as u8);
 
-        for w in &def.operand_widths {
-            instruction_len += w;
-        };
-
-        match instruction_len {
-            3 => {
-                let mut instruction = [0u8; 3];
-                instruction[0] = *op as u8;
-
-                for (i, o) in operands.iter().enumerate() {
-                    match def.operand_widths.get(i) {
-                        Some(2) => {
-                            BigEndian::write_u16(&mut instruction[1..], (*o).into());
-                        },
-                        Some(_) => return Instruction::Empty,
-                        None => return Instruction::Empty,
+        for (i, o) in operands.iter().enumerate() {
+            match def.operand_widths.get(i) {
+                Some(2) => {
+                    match instruction.write_u16::<BigEndian>(*o as u16) {
+                        Ok(_) => {},
+                        Err(_) => return vec![],
                     };
+                },
+                Some(_) => return vec![],
+                None => return vec![],
+            };
+        };
 
-                };
-
-                Instruction::Three(instruction)
-            },
-            _ => Instruction::Empty,
-        }
+        instruction
     }
 }
 
@@ -127,14 +76,14 @@ impl MCode {
 mod tests {
     use super::*;
 
-    fn make(op: &Opcode, operands: &[Operand]) -> Instruction {
+    fn make(op: &Opcode, operands: &Operand) -> Instructions {
         MCode::new().make(op, operands)
     }
 
     #[test]
     fn test_make() -> Result<()> {
         let tests = vec![
-            (Opcode::OpConstant, [Operand::from(65534u16)], [Opcode::OpConstant as u8, 255, 254]),
+            (Opcode::OpConstant, vec![65534], [Opcode::OpConstant as u8, 255, 254]),
         ];
 
         for tt in tests {

@@ -1,0 +1,129 @@
+use crate::{
+    interpreter::object::MObject,
+    compiler::code::Instructions, ast::MNode, error::Error,
+};
+
+type Result<T> = std::result::Result<T, Error>;
+
+pub struct Bytecode {
+    pub instructions: Instructions,
+    pub contstants: Vec<MObject>,
+}
+
+struct Compiler  {
+    instructions: Instructions,
+    constants: Vec<MObject>,
+}
+
+impl Compiler {
+    fn new() -> Self {
+        Self {
+            instructions: Vec::new(),
+            constants: Vec::new(),
+        }
+    }
+
+    pub fn compile(&self, node: MNode) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn bytecode(&self) -> Bytecode {
+        Bytecode {
+            instructions: self.instructions.clone(),
+            contstants: self.constants.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+    use crate::{ast::Program, lexer::{lexer::Lexer, token::Token}, parser::parser::Parser, interpreter::object::Integer, compiler::code::{Opcode, MCode}};
+
+    fn check_parser_errors<I: Iterator<Item = Result<Token>>>(p: Parser<I>) -> Result<()> {
+        let errors = p.errors();
+
+        if errors.is_empty() {
+            return Ok(());
+        }
+
+        let mut msg = format!("The Parser had {} errors:\n", errors.len());
+
+        for e in errors {
+            msg.push_str(&e);
+            msg.push('\n');
+        }
+
+        Err(Error::new(msg))
+    }
+
+    fn parse(input: String) -> Result<Program> {
+        let lexer = Lexer::new(input.as_bytes().bytes().peekable())?;
+        let mut parser = Parser::new(lexer.peekable())?;
+        let program = parser.parse()?;
+
+        check_parser_errors(parser)?;
+
+        Ok(program)
+    }
+
+    fn test_instructions(expected_instructions: Vec<Instructions>, actual: Instructions) {
+        let expected: Instructions = expected_instructions
+            .into_iter()
+            .flatten()
+            .collect::<Instructions>();
+
+        assert_eq!(expected, actual);
+    }
+
+    fn test_constants(expected: Vec<MObject>, actual: Vec<MObject>) {
+        assert_eq!(expected, actual);
+    }
+
+    struct TestCase {
+        input: String,
+        expected_instructions: Vec<Instructions>,
+        expected_constants: Vec<MObject>,
+    }
+
+    fn run_compiler_tests(tests: Vec<TestCase>) -> Result<()> {
+        for tt in tests {
+            let program = parse(tt.input)?;
+            let compiler = Compiler::new();
+            compiler.compile(MNode::Prog(program))?;
+
+            let bytecode = compiler.bytecode();
+
+            test_instructions(tt.expected_instructions, bytecode.instructions);
+            test_constants(tt.expected_constants, bytecode.contstants);
+        };
+
+        Ok(())
+    }
+
+    fn i_to_o(i: i128) -> MObject {
+        MObject::Int(
+            Integer {
+                value: i,
+            }
+        )
+    }
+
+    #[test]
+    fn test_integer_arithmetic() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: "1 + 2".to_string(),
+                expected_constants: vec![1, 2].iter().map(|i| i_to_o(*i) ).collect(),
+                expected_instructions: vec![
+                    code.make(&Opcode::OpConstant, &vec![0]),
+                    code.make(&Opcode::OpConstant, &vec![1]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+}
