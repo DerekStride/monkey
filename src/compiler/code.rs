@@ -1,10 +1,9 @@
 use std::{
     convert::From,
     collections::HashMap,
-    ops::Index,
 };
 
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
 use crate::error::Error;
 
@@ -25,13 +24,13 @@ pub struct Definition {
 }
 
 pub struct MCode {
-    definitions: HashMap<Opcode, Definition>,
+    definitions: HashMap<u8, Definition>,
 }
 
 impl MCode {
     pub fn new() -> Self {
         let definitions = HashMap::from([
-            (Opcode::OpConstant, Definition { name: "Opconstant".to_string(), operand_widths: vec![2] }),
+            (Opcode::OpConstant as u8, Definition { name: "Opconstant".to_string(), operand_widths: vec![2] }),
         ]);
 
         Self {
@@ -39,7 +38,7 @@ impl MCode {
         }
     }
 
-    pub fn lookup(&self, op: &Opcode) -> Result<Definition> {
+    pub fn lookup(&self, op: &u8) -> Result<Definition> {
         match self.definitions.get(op) {
             Some(x) => Ok(x.clone()),
             None => Err(Error::new(format!("opcode {:?} undefined", op))),
@@ -48,7 +47,7 @@ impl MCode {
 
     pub fn make(&self, op: &Opcode, operands: &Operand) -> Instructions {
         let mut instruction = vec![];
-        let def = match self.definitions.get(op) {
+        let def = match self.definitions.get(&(*op as u8)) {
             Some(x) => x,
             None => return instruction,
         };
@@ -69,6 +68,71 @@ impl MCode {
         };
 
         instruction
+    }
+
+    pub fn format(&self, ins: &Instructions) -> String {
+        let mut buf = String::new();
+
+        let mut i = 0;
+        while i < ins.len() {
+            let def = match self.lookup(&ins[i]) {
+                Ok(x) => x,
+                Err(e) => {
+                    buf.push_str("ERROR: ");
+                    buf.push_str(&e.to_string());
+                    buf.push_str("\n");
+                    continue;
+                },
+            };
+
+            let (operands, read) = match MCode::read_operands(&def, &ins[i+1..]) {
+                Ok(x) => x,
+                Err(e) => {
+                    buf.push_str("ERROR: ");
+                    buf.push_str(&e.to_string());
+                    buf.push_str("\n");
+                    continue;
+                },
+            };
+
+            buf.push_str(&format!("{:0>4} {}\n", i, MCode::format_ins(&def, &operands)));
+
+            i += 1 + read;
+        };
+
+        buf
+    }
+
+    fn format_ins(def: &Definition, operands: &Operand) -> String {
+        let mut buf = String::new();
+        let op_count = def.operand_widths.len();
+
+        if op_count != operands.len() {
+            buf.push_str(&format!("ERROR: operand len {} does not match defined {}\n", operands.len(), op_count));
+            return buf;
+        };
+
+        match op_count {
+            1 => buf.push_str(&format!("{} {}", def.name, operands.get(0).unwrap())),
+            _ => buf.push_str(&format!("ERROR: unhandled operand count ({}) for {}\n", op_count, def.name)),
+        }
+
+        buf
+    }
+
+    pub fn read_operands(def: &Definition, ins: &[u8]) -> Result<(Operand, usize)> {
+        let mut operands = Vec::new();
+        let mut offset = 0;
+
+        for (i, width) in def.operand_widths.iter().enumerate() {
+            match width {
+                2 => operands.insert(i, BigEndian::read_u16(&ins[offset..]) as isize),
+                _  => return Err(Error::new(format!("No support for operands of width={}", width))),
+            }
+            offset += *width as usize;
+        };
+
+        Ok((operands, offset))
     }
 }
 
@@ -95,6 +159,51 @@ mod tests {
                 assert_eq!(*b, instruction[i]);
             };
         };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_operands() -> Result<()> {
+        let tests = vec![
+            (Opcode::OpConstant, vec![65534], 2),
+        ];
+
+        let mcode = MCode::new();
+
+        for tt in tests {
+            let instruction = make(&tt.0, &tt.1);
+            let def = mcode.lookup(&(tt.0 as u8))?;
+
+            let (operands_read, n) = MCode::read_operands(&def, &instruction[1..])?;
+
+            assert_eq!(tt.2, n);
+            assert_eq!(tt.1, operands_read);
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_fmt_display() -> Result<()> {
+        let instructions = vec![
+            make(&Opcode::OpConstant, &vec![1]),
+            make(&Opcode::OpConstant, &vec![2]),
+            make(&Opcode::OpConstant, &vec![65535]),
+        ];
+
+        let expected = vec![
+            "0000 Opconstant 1\n",
+            "0003 Opconstant 2\n",
+            "0006 Opconstant 65535\n",
+        ].join("");
+
+        let actual: Instructions = instructions
+            .into_iter()
+            .flatten()
+            .collect();
+
+        assert_eq!(expected, MCode::new().format(&actual));
 
         Ok(())
     }

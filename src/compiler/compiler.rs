@@ -1,6 +1,8 @@
 use crate::{
-    interpreter::object::MObject,
-    compiler::code::Instructions, ast::MNode, error::Error,
+    interpreter::object::*,
+    compiler::code::*,
+    ast::*,
+    error::Error,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -13,6 +15,7 @@ pub struct Bytecode {
 struct Compiler  {
     instructions: Instructions,
     constants: Vec<MObject>,
+    code: MCode,
 }
 
 impl Compiler {
@@ -20,11 +23,47 @@ impl Compiler {
         Self {
             instructions: Vec::new(),
             constants: Vec::new(),
+            code: MCode::new(),
         }
     }
 
-    pub fn compile(&self, node: MNode) -> Result<()> {
+    pub fn compile(&mut self, node: MNode) -> Result<()> {
+        match node {
+            MNode::Prog(p) => {
+                for stmt in p.stmts {
+                    self.compile(MNode::Stmt(stmt))?
+                };
+            },
+            MNode::Stmt(s) => {
+                match s {
+                    Stmt::Expression(stmt) => {
+                        self.compile(MNode::Expr(stmt.expr))?;
+                    },
+                    _ => return Err(Error::new(format!("Compilation not implemented for: {}", s))),
+                };
+            },
+            MNode::Expr(e) => {
+                match e {
+                    Expr::In(infix) => {
+                        self.compile(MNode::Expr(*infix.left))?;
+                        self.compile(MNode::Expr(*infix.right))?;
+                    },
+                    Expr::Int(int) => {
+                        let literal = Integer { value: int.value };
+                        self.constants.push(MObject::Int(literal));
+                        self.emit(Opcode::OpConstant, vec![(self.constants.len() - 1) as isize]);
+                    },
+                    _ => return Err(Error::new(format!("Compilation not implemented for: {}", e))),
+                };
+            },
+        };
+
         Ok(())
+    }
+
+    fn emit(&mut self, op: Opcode, operands: Operand) {
+        let mut ins = self.code.make(&op, &operands);
+        self.instructions.append(&mut ins);
     }
 
     pub fn bytecode(&self) -> Bytecode {
@@ -74,7 +113,8 @@ mod tests {
             .flatten()
             .collect::<Instructions>();
 
-        assert_eq!(expected, actual);
+        let mcode = MCode::new();
+        assert_eq!(expected, actual, "\n\nwant:\n{}\ngot:\n{}\n", mcode.format(&expected), mcode.format(&actual));
     }
 
     fn test_constants(expected: Vec<MObject>, actual: Vec<MObject>) {
@@ -90,7 +130,7 @@ mod tests {
     fn run_compiler_tests(tests: Vec<TestCase>) -> Result<()> {
         for tt in tests {
             let program = parse(tt.input)?;
-            let compiler = Compiler::new();
+            let mut compiler = Compiler::new();
             compiler.compile(MNode::Prog(program))?;
 
             let bytecode = compiler.bytecode();
