@@ -2,6 +2,8 @@ use std::{fmt, io};
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 
+pub type Result<T> = std::result::Result<T, Error>;
+
 #[derive(PartialEq, Debug)]
 pub struct Error {
     details: String

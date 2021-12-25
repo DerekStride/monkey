@@ -1,3 +1,5 @@
+use core::fmt;
+
 use crate::{
     interpreter::object::*,
     compiler::code::*,
@@ -12,14 +14,14 @@ pub struct Bytecode {
     pub contstants: Vec<MObject>,
 }
 
-struct Compiler  {
+pub struct Compiler  {
     instructions: Instructions,
     constants: Vec<MObject>,
     code: MCode,
 }
 
 impl Compiler {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             instructions: Vec::new(),
             constants: Vec::new(),
@@ -71,6 +73,26 @@ impl Compiler {
             instructions: self.instructions.clone(),
             contstants: self.constants.clone(),
         }
+    }
+}
+
+impl fmt::Display for Compiler {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Compiler {{\n\tinstructions:\n\t\t{}\n\tconstants:\n\t\t{}\n}}",
+            self.code.format(&self.instructions)
+                .lines()
+                .map(|l| l.to_string())
+                .collect::<Vec<String>>()
+                .join("\n\t\t"),
+            self.constants
+                .iter()
+                .enumerate()
+                .map(|(i, o)| format!("{}: {}", i, o))
+                .collect::<Vec<String>>()
+                .join("\n\t\t")
+        )
     }
 }
 

@@ -19,8 +19,9 @@ pub enum Opcode {
 
 #[derive(Clone)]
 pub struct Definition {
-    name: String,
-    operand_widths: Vec<u8>,
+    pub name: String,
+    pub op: Opcode,
+    pub operand_widths: Vec<u8>,
 }
 
 pub struct MCode {
@@ -30,7 +31,7 @@ pub struct MCode {
 impl MCode {
     pub fn new() -> Self {
         let definitions = HashMap::from([
-            (Opcode::OpConstant as u8, Definition { name: "Opconstant".to_string(), operand_widths: vec![2] }),
+            (Opcode::OpConstant as u8, Definition { name: "Opconstant".to_string(), op: Opcode::OpConstant, operand_widths: vec![2] }),
         ]);
 
         Self {
