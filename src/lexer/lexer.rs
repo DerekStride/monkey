@@ -2,11 +2,10 @@ use std::{io, str};
 use std::iter::Peekable;
 use std::collections::HashMap;
 
-use crate::error::Error;
+use crate::error::{Result, Error};
 use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
 
-type Result<T> = std::result::Result<T, Error>;
 type FileByte = std::result::Result<u8, io::Error>;
 
 pub struct Lexer<I: Iterator<Item = FileByte>> {

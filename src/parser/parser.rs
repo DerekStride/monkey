@@ -6,11 +6,9 @@ use crate::{
         token_type::TokenType,
     },
     parser::precedence::Precedence,
-    error::Error,
+    error::{Result, Error},
     ast::*,
 };
-
-type Result<T> = std::result::Result<T, Error>;
 
 pub struct Parser<I: Iterator<Item = Result<Token>>> {
     l: Peekable<I>,

@@ -5,9 +5,7 @@ use std::{
 
 use byteorder::{ByteOrder, BigEndian, WriteBytesExt};
 
-use crate::error::Error;
-
-type Result<T> = std::result::Result<T, Error>;
+use crate::error::{Result, Error};
 
 pub type Instructions = Vec<u8>;
 pub type Operand = Vec<isize>;

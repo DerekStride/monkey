@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    error::Error,
+    error::{Result, Error},
     interpreter::{
         object::*,
         builtin::Builtin,
@@ -9,8 +9,6 @@ use crate::{
     },
     ast::*, lexer::{token::Token, token_type::TokenType},
 };
-
-type Result<T> = std::result::Result<T, Error>;
 
 const TRUE: MObject = MObject::Bool(Boolean { value: true });
 const FALSE: MObject = MObject::Bool(Boolean { value: false });
@@ -624,8 +622,6 @@ mod tests {
     use crate::{lexer::{lexer::Lexer, token::Token}, parser::parser::Parser};
 
     use std::io::Read;
-
-    type Result<T> = std::result::Result<T, Error>;
 
 
     fn test_eval(input: String) -> Result<MObject> {
