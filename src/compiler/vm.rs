@@ -97,6 +97,7 @@ mod tests {
 
     use crate::{
         ast::*,
+        test_utils::*,
         compiler::compiler::Compiler,
         lexer::token::Token,
         parser::parser::Parser,
@@ -151,14 +152,6 @@ mod tests {
         };
 
         Ok(())
-    }
-
-    fn i_to_o(i: i128) -> MObject {
-        MObject::Int(
-            Integer {
-                value: i,
-            }
-        )
     }
 
     #[test]

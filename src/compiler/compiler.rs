@@ -4,10 +4,8 @@ use crate::{
     interpreter::object::*,
     compiler::code::*,
     ast::*,
-    error::Error,
+    error::{Result, Error},
 };
-
-type Result<T> = std::result::Result<T, Error>;
 
 pub struct Bytecode {
     pub instructions: Instructions,
@@ -103,35 +101,11 @@ impl fmt::Display for Compiler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
-    use crate::{ast::Program, lexer::{lexer::Lexer, token::Token}, parser::parser::Parser, interpreter::object::Integer, compiler::code::{Opcode, MCode}};
 
-    fn check_parser_errors<I: Iterator<Item = Result<Token>>>(p: Parser<I>) -> Result<()> {
-        let errors = p.errors();
-
-        if errors.is_empty() {
-            return Ok(());
-        }
-
-        let mut msg = format!("The Parser had {} errors:\n", errors.len());
-
-        for e in errors {
-            msg.push_str(&e);
-            msg.push('\n');
-        }
-
-        Err(Error::new(msg))
-    }
-
-    fn parse(input: String) -> Result<Program> {
-        let lexer = Lexer::new(input.as_bytes().bytes().peekable())?;
-        let mut parser = Parser::new(lexer.peekable())?;
-        let program = parser.parse()?;
-
-        check_parser_errors(parser)?;
-
-        Ok(program)
-    }
+    use crate::{
+        test_utils::*,
+        compiler::code::{Opcode, MCode}
+    };
 
     fn test_instructions(expected_instructions: Vec<Instructions>, actual: Instructions) {
         let expected: Instructions = expected_instructions
@@ -166,14 +140,6 @@ mod tests {
         };
 
         Ok(())
-    }
-
-    fn i_to_o(i: i128) -> MObject {
-        MObject::Int(
-            Integer {
-                value: i,
-            }
-        )
     }
 
     #[test]

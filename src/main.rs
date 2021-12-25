@@ -8,6 +8,9 @@ mod compiler;
 mod repl;
 mod ast;
 
+#[cfg(test)]
+mod test_utils;
+
 use crate::repl::repl::start;
 
 fn main() {
