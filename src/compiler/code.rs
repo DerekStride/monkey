@@ -15,6 +15,7 @@ pub type Operand = Vec<isize>;
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
 pub enum Opcode {
     OpConstant,
+    OpAdd,
 }
 
 #[derive(Clone)]
@@ -32,6 +33,7 @@ impl MCode {
     pub fn new() -> Self {
         let definitions = HashMap::from([
             (Opcode::OpConstant as u8, Definition { name: "Opconstant".to_string(), op: Opcode::OpConstant, operand_widths: vec![2] }),
+            (Opcode::OpAdd as u8, Definition { name: "OpAdd".to_string(), op: Opcode::OpAdd, operand_widths: vec![] }),
         ]);
 
         Self {
@@ -114,6 +116,7 @@ impl MCode {
         };
 
         match op_count {
+            0 => buf.push_str(&format!("{}", def.name)),
             1 => buf.push_str(&format!("{} {}", def.name, operands.get(0).unwrap())),
             _ => buf.push_str(&format!("ERROR: unhandled operand count ({}) for {}\n", op_count, def.name)),
         }
@@ -148,7 +151,8 @@ mod tests {
     #[test]
     fn test_make() -> Result<()> {
         let tests = vec![
-            (Opcode::OpConstant, vec![65534], [Opcode::OpConstant as u8, 255, 254]),
+            (Opcode::OpAdd, vec![], vec![Opcode::OpAdd as u8]),
+            (Opcode::OpConstant, vec![65534], vec![Opcode::OpConstant as u8, 255, 254]),
         ];
 
         for tt in tests {
@@ -190,21 +194,24 @@ mod tests {
         let instructions = vec![
             make(&Opcode::OpConstant, &vec![1]),
             make(&Opcode::OpConstant, &vec![2]),
+            make(&Opcode::OpAdd, &vec![]),
             make(&Opcode::OpConstant, &vec![65535]),
         ];
 
         let expected = vec![
             "0000 Opconstant 1\n",
             "0003 Opconstant 2\n",
-            "0006 Opconstant 65535\n",
+            "0006 OpAdd\n",
+            "0007 Opconstant 65535\n",
         ].join("");
 
-        let actual: Instructions = instructions
+        let actual_ins: Instructions = instructions
             .into_iter()
             .flatten()
             .collect();
 
-        assert_eq!(expected, MCode::new().format(&actual));
+        let actual = MCode::new().format(&actual_ins);
+        assert_eq!(expected, actual, "\nexpected:\n{}\nactual:\n{}\n", expected, actual);
 
         Ok(())
     }

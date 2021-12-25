@@ -45,6 +45,21 @@ impl Vm {
 
                     self.push(self.constants.get(const_idx).unwrap().clone())?;
                 },
+                Opcode::OpAdd => {
+                    let right = self.pop()?;
+                    let left = self.pop()?;
+
+                    let right_val = match right {
+                        MObject::Int(x) => x.value,
+                        _ => return Err(Error::new(format!("cannot add object: {}", right))),
+                    };
+                    let left_val = match left {
+                        MObject::Int(x) => x.value,
+                        _ => return Err(Error::new(format!("cannot add object: {}", left))),
+                    };
+
+                    self.push(MObject::Int(Integer { value: left_val + right_val }))?;
+                },
             };
 
         }
@@ -63,6 +78,13 @@ impl Vm {
             Ok(())
         } else {
             Err(Error::new("Stack overflow".to_string()))
+        }
+    }
+
+    fn pop(&mut self) -> Result<MObject> {
+        match self.stack.pop() {
+            Some(x) => Ok(x),
+            None => Err(Error::new("Stack is empty".to_string())),
         }
     }
 }
@@ -144,7 +166,7 @@ mod tests {
         let tests = vec![
             TestCase { input: "1".to_string(), expected: i_to_o(1) },
             TestCase { input: "2".to_string(), expected: i_to_o(2) },
-            TestCase { input: "1 + 2".to_string(), expected: i_to_o(2) }, // Fixme
+            TestCase { input: "1 + 2".to_string(), expected: i_to_o(3) },
         ];
 
         run_vm_tests(&tests)

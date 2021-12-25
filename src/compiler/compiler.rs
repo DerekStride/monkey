@@ -49,6 +49,10 @@ impl Compiler {
                     Expr::In(infix) => {
                         self.compile(MNode::Expr(*infix.left))?;
                         self.compile(MNode::Expr(*infix.right))?;
+                        match infix.operator.as_str() {
+                            "+" => self.emit(Opcode::OpAdd, vec![]),
+                            _ => return Err(Error::new(format!("unknown operator: {}", infix.operator))),
+                        };
                     },
                     Expr::Int(int) => {
                         let literal = Integer { value: int.value };
@@ -182,6 +186,7 @@ mod tests {
                 expected_instructions: vec![
                     code.make(&Opcode::OpConstant, &vec![0]),
                     code.make(&Opcode::OpConstant, &vec![1]),
+                    code.make(&Opcode::OpAdd, &vec![]),
                 ],
             },
         ];
