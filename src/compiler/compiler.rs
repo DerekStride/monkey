@@ -48,14 +48,14 @@ impl Compiler {
                         self.compile(MNode::Expr(*infix.left))?;
                         self.compile(MNode::Expr(*infix.right))?;
                         match infix.operator.as_str() {
-                            "+" => self.emit(Opcode::OpAdd, vec![]),
+                            "+" => self.emit(OP_ADD, vec![]),
                             _ => return Err(Error::new(format!("unknown operator: {}", infix.operator))),
                         };
                     },
                     Expr::Int(int) => {
                         let literal = Integer { value: int.value };
                         self.constants.push(MObject::Int(literal));
-                        self.emit(Opcode::OpConstant, vec![(self.constants.len() - 1) as isize]);
+                        self.emit(OP_CONSTANT, vec![(self.constants.len() - 1) as isize]);
                     },
                     _ => return Err(Error::new(format!("Compilation not implemented for: {}", e))),
                 };
@@ -104,7 +104,7 @@ mod tests {
 
     use crate::{
         test_utils::*,
-        compiler::code::{Opcode, MCode}
+        compiler::code::MCode,
     };
 
     fn test_instructions(expected_instructions: Vec<Instructions>, actual: Instructions) {
@@ -150,9 +150,9 @@ mod tests {
                 input: "1 + 2".to_string(),
                 expected_constants: vec![1, 2].iter().map(|i| i_to_o(*i) ).collect(),
                 expected_instructions: vec![
-                    code.make(&Opcode::OpConstant, &vec![0]),
-                    code.make(&Opcode::OpConstant, &vec![1]),
-                    code.make(&Opcode::OpAdd, &vec![]),
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_ADD, &vec![]),
                 ],
             },
         ];

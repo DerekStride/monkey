@@ -39,13 +39,13 @@ impl Vm {
             ip += 1;
 
             match op {
-                Opcode::OpConstant => {
+                OP_CONSTANT => {
                     let const_idx: usize = BigEndian::read_u16(&self.instructions[ip as usize..]).into();
                     ip += 2;
 
                     self.push(self.constants.get(const_idx).unwrap().clone())?;
                 },
-                Opcode::OpAdd => {
+                OP_ADD => {
                     let right = self.pop()?;
                     let left = self.pop()?;
 
@@ -60,6 +60,7 @@ impl Vm {
 
                     self.push(MObject::Int(Integer { value: left_val + right_val }))?;
                 },
+                _ => return Err(Error::new(format!("Invalid Opcode: {:x}", op))),
             };
 
         }

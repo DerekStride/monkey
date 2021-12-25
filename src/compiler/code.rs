@@ -9,12 +9,10 @@ use crate::error::{Result, Error};
 
 pub type Instructions = Vec<u8>;
 pub type Operand = Vec<isize>;
+pub type Opcode = u8;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
-pub enum Opcode {
-    OpConstant,
-    OpAdd,
-}
+pub const OP_CONSTANT: u8    = 0;
+pub const OP_ADD: u8         = 1;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -30,8 +28,8 @@ pub struct MCode {
 impl MCode {
     pub fn new() -> Self {
         let definitions = HashMap::from([
-            (Opcode::OpConstant as u8, Definition { name: "Opconstant".to_string(), op: Opcode::OpConstant, operand_widths: vec![2] }),
-            (Opcode::OpAdd as u8, Definition { name: "OpAdd".to_string(), op: Opcode::OpAdd, operand_widths: vec![] }),
+            (OP_CONSTANT, Definition { name: "OpConstant".to_string(), op: OP_CONSTANT, operand_widths: vec![2] }),
+            (OP_ADD, Definition { name: "OpAdd".to_string(), op: OP_ADD, operand_widths: vec![] }),
         ]);
 
         Self {
@@ -149,8 +147,8 @@ mod tests {
     #[test]
     fn test_make() -> Result<()> {
         let tests = vec![
-            (Opcode::OpAdd, vec![], vec![Opcode::OpAdd as u8]),
-            (Opcode::OpConstant, vec![65534], vec![Opcode::OpConstant as u8, 255, 254]),
+            (OP_ADD, vec![], vec![OP_ADD as u8]),
+            (OP_CONSTANT, vec![65534], vec![OP_CONSTANT as u8, 255, 254]),
         ];
 
         for tt in tests {
@@ -169,7 +167,7 @@ mod tests {
     #[test]
     fn test_read_operands() -> Result<()> {
         let tests = vec![
-            (Opcode::OpConstant, vec![65534], 2),
+            (OP_CONSTANT, vec![65534], 2),
         ];
 
         let mcode = MCode::new();
@@ -190,17 +188,17 @@ mod tests {
     #[test]
     fn test_fmt_display() -> Result<()> {
         let instructions = vec![
-            make(&Opcode::OpConstant, &vec![1]),
-            make(&Opcode::OpConstant, &vec![2]),
-            make(&Opcode::OpAdd, &vec![]),
-            make(&Opcode::OpConstant, &vec![65535]),
+            make(&OP_CONSTANT, &vec![1]),
+            make(&OP_CONSTANT, &vec![2]),
+            make(&OP_ADD, &vec![]),
+            make(&OP_CONSTANT, &vec![65535]),
         ];
 
         let expected = vec![
-            "0000 Opconstant 1\n",
-            "0003 Opconstant 2\n",
+            "0000 OpConstant 1\n",
+            "0003 OpConstant 2\n",
             "0006 OpAdd\n",
-            "0007 Opconstant 65535\n",
+            "0007 OpConstant 65535\n",
         ].join("");
 
         let actual_ins: Instructions = instructions
