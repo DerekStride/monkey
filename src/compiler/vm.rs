@@ -14,7 +14,6 @@ pub struct Vm {
     constants: Vec<MObject>,
 
     stack: Vec<MObject>,
-    mcode: MCode,
     sp: usize,
 }
 
@@ -24,7 +23,6 @@ impl Vm {
             instructions: bytecode.instructions,
             constants: bytecode.contstants,
             stack: Vec::with_capacity(STACK_SIZE),
-            mcode: MCode::new(),
             sp: 0,
         }
     }
@@ -33,12 +31,10 @@ impl Vm {
         let mut ip = 0;
 
         while ip < self.instructions.len() {
-            let instruction = self.instructions.get(ip).unwrap();
-            let def = self.mcode.lookup(instruction)?;
-            let op = def.op;
+            let op = self.instructions.get(ip).unwrap();
             ip += 1;
 
-            match op {
+            match *op {
                 OP_CONSTANT => {
                     let const_idx: usize = BigEndian::read_u16(&self.instructions[ip as usize..]).into();
                     ip += 2;
