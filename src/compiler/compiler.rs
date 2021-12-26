@@ -65,6 +65,15 @@ impl Compiler {
                             _ => return Err(Error::new(format!("unknown operator: {}", infix.operator))),
                         };
                     },
+                    Expr::Pre(prefix) => {
+                        self.compile(MNode::Expr(*prefix.right))?;
+
+                        match prefix.operator.as_str() {
+                            "!" => self.emit(OP_BANG, vec![]),
+                            "-" => self.emit(OP_MINUS, vec![]),
+                            _ => return Err(Error::new(format!("unknown operator: {}", prefix.operator))),
+                        };
+                    },
                     Expr::Int(int) => {
                         let literal = Integer { value: int.value };
                         self.constants.push(MObject::Int(literal));
@@ -206,6 +215,18 @@ mod tests {
                     code.make(&OP_POP, &vec![]),
                 ],
             },
+            TestCase {
+                input: "-1 - -2".to_string(),
+                expected_constants: vec![1, 2].iter().map(|i| i_to_o(*i) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_MINUS, &vec![]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_MINUS, &vec![]),
+                    code.make(&OP_SUB, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
         ];
 
         run_compiler_tests(tests)
@@ -228,6 +249,15 @@ mod tests {
                 expected_constants: vec![],
                 expected_instructions: vec![
                     code.make(&OP_FALSE, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: "!false".to_string(),
+                expected_constants: vec![],
+                expected_instructions: vec![
+                    code.make(&OP_FALSE, &vec![]),
+                    code.make(&OP_BANG, &vec![]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

@@ -45,6 +45,20 @@ impl Vm {
                 OP_TRUE => self.push(TRUE)?,
                 OP_FALSE => self.push(FALSE)?,
                 OP_EQUAL..=OP_GREATER_THAN => self.comparison_op(op)?,
+                OP_MINUS => {
+                    let object = self.pop()?;
+                    match object {
+                        MObject::Int(x) => self.push(MObject::Int(Integer { value: -x.value }))?,
+                        _ => return Err(Error::new(format!("object not an integer: {}", object))),
+                    };
+                },
+                OP_BANG => {
+                    let object = self.pop()?;
+                    match object {
+                        MObject::Bool(x) => self.push(native_bool_to_boolean(!x.value))?,
+                        _ => self.push(FALSE)?,
+                    };
+                },
                 OP_POP => self.last_op_pop_element = Some(self.pop()?),
                 _ => {
                     let code = MCode::new();
@@ -206,6 +220,7 @@ mod tests {
             TestCase { input: "2".to_string(), expected: i_to_o(2) },
             TestCase { input: "1 + 2".to_string(), expected: i_to_o(3) },
             TestCase { input: "1 - 2".to_string(), expected: i_to_o(-1) },
+            TestCase { input: "-1 - -2".to_string(), expected: i_to_o(1) },
             TestCase { input: "1 * 2".to_string(), expected: i_to_o(2) },
             TestCase { input: "4 / 2".to_string(), expected: i_to_o(2) },
             TestCase { input: "50 / 2 * 2 + 10 - 5".to_string(), expected: i_to_o(55) },
@@ -223,6 +238,10 @@ mod tests {
     fn test_boolean_expressions() -> Result<()> {
         let tests = vec![
             TestCase { input: "true".to_string(), expected: TRUE },
+            TestCase { input: "!true".to_string(), expected: FALSE },
+            TestCase { input: "!!true".to_string(), expected: TRUE },
+            TestCase { input: "!5".to_string(), expected: FALSE },
+            TestCase { input: "!!5".to_string(), expected: TRUE },
             TestCase { input: "false".to_string(), expected: FALSE },
             TestCase { input: "1 < 2".to_string(), expected: TRUE },
             TestCase { input: "1 > 2".to_string(), expected: FALSE },

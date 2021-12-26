@@ -22,6 +22,8 @@ pub const OP_FALSE: u8       = 7;
 pub const OP_EQUAL: u8              = 8;
 pub const OP_NOT_EQUAL: u8          = 9;
 pub const OP_GREATER_THAN: u8       = 10;
+pub const OP_MINUS: u8              = 11;
+pub const OP_BANG: u8               = 12;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -47,6 +49,8 @@ impl MCode {
             (OP_EQUAL, Definition { name: "OpEqual".to_string(), operand_widths: vec![] }),
             (OP_NOT_EQUAL, Definition { name: "OpNotEqual".to_string(), operand_widths: vec![] }),
             (OP_GREATER_THAN, Definition { name: "OpGreatherThan".to_string(), operand_widths: vec![] }),
+            (OP_MINUS, Definition { name: "OpMinus".to_string(), operand_widths: vec![] }),
+            (OP_BANG, Definition { name: "OpBang".to_string(), operand_widths: vec![] }),
         ]);
 
         Self {
