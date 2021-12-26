@@ -857,9 +857,11 @@ pub fn modify(node: MNode, env: &mut Environment, modifier: fn(MNode, &mut Envir
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{lexer::token_type::TokenType, error::Error, interpreter::environment::Environment};
-
-    type Result<T> = std::result::Result<T, Error>;
+    use crate::{
+        lexer::token_type::TokenType,
+        error::Result,
+        interpreter::environment::Environment
+    };
 
     #[test]
     fn test_fmt_display() {

@@ -1,11 +1,9 @@
 use std::{fmt, io::{self, Write}};
 
 use crate::{
-    error::Error,
+    error::Result,
     interpreter::object::*,
 };
-
-type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone)]
 pub enum Builtin {

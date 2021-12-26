@@ -6,11 +6,9 @@ use crate::{
         token_type::TokenType,
     },
     parser::precedence::Precedence,
-    error::Error,
+    error::{Result, Error},
     ast::*,
 };
-
-type Result<T> = std::result::Result<T, Error>;
 
 pub struct Parser<I: Iterator<Item = Result<Token>>> {
     l: Peekable<I>,
@@ -608,22 +606,14 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ast::Node, lexer::lexer::Lexer};
+    use crate::{
+        ast::Node,
+        test_utils::*,
+        lexer::lexer::Lexer
+    };
 
     use super::*;
-    use std::io::{self, Read};
-
-    type FileByte = std::result::Result<u8, io::Error>;
-
-    fn parse<I: Iterator<Item = FileByte>>(input: I) -> Result<Program> {
-        let l = Lexer::new(input.peekable())?;
-        let mut p = Parser::new(l.peekable())?;
-        let program = p.parse()?;
-
-        check_parser_errors(p)?;
-
-        Ok(program)
-    }
+    use std::io::Read;
 
     fn test_let_statement(stmt: &Stmt, expected_ident: &String, expected_expr: &Expr) -> Result<()> {
         assert_eq!("let", stmt.token_literal());
@@ -635,21 +625,6 @@ mod tests {
 
         assert_eq!(*expected_ident, let_stmt.name.value);
         test_literal_expression(expected_expr, &let_stmt.value)
-    }
-
-    fn check_parser_errors<I: Iterator<Item = Result<Token>>>(p: Parser<I>) -> Result<()> {
-        if p.errors.is_empty() {
-            return Ok(());
-        }
-
-        let mut msg = format!("The Parser had {} errors:\n", p.errors.len());
-
-        for e in p.errors {
-            msg.push_str(&e);
-            msg.push('\n');
-        }
-
-        Err(Error::new(msg))
     }
 
     fn test_integer_literal(expected: i128, expr: &Expr) -> Result<()> {
@@ -701,51 +676,15 @@ mod tests {
         }
     }
 
-    fn i_to_expr(i: i128) -> Expr {
-        Expr::Int(
-            IntegerLiteral {
-                token: Token { literal: format!("{}", i), token_type: TokenType::INT },
-                value: i,
-            }
-        )
-    }
-
-    fn b_to_expr(i: bool) -> Expr {
-        Expr::Bool(
-            BooleanLiteral {
-                token: Token { literal: format!("{}", i), token_type: if i { TokenType::TRUE } else { TokenType::FALSE } },
-                value: i,
-            }
-        )
-    }
-
-    fn l_to_expr(i: String) -> Expr {
-        Expr::Ident(
-            Identifier {
-                token: Token { literal: i.clone(), token_type: TokenType::IDENT },
-                value: i,
-            }
-        )
-    }
-
-    fn s_to_expr(i: String) -> Expr {
-        Expr::Str(
-            StringLiteral {
-                token: Token { literal: i.clone(), token_type: TokenType::STRING },
-                value: i,
-            }
-        )
-    }
-
     #[test]
     fn test_let_statements() -> Result<()> {
-        let input = br###"
+        let input = r###"
             let x = 5;
             let y = true;
             let foobar = y;
-        "###.to_vec();
+        "###.to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
         assert_eq!(3, program.stmts.len());
 
         let tests = vec![
@@ -767,12 +706,12 @@ mod tests {
 
     #[test]
     fn test_parser_errors() -> Result<()> {
-        let input = br###"
+        let input = r###"
             let x 5;
             let 838383;
-        "###.to_vec();
+        "###.to_string();
 
-        let l = Lexer::new(input.bytes().peekable())?;
+        let l = Lexer::new(input.as_bytes().bytes().peekable())?;
         let mut p = Parser::new(l.peekable())?;
         p.parse()?;
 
@@ -796,13 +735,13 @@ mod tests {
 
     #[test]
     fn test_return_statement() -> Result<()> {
-        let input = br###"
+        let input = r###"
             return 5;
             return 10;
             return 993322;
-        "###.to_vec();
+        "###.to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
 
         assert_eq!(3, program.stmts.len());
 
@@ -821,11 +760,11 @@ mod tests {
 
     #[test]
     fn test_identifier_expressions() -> Result<()> {
-        let input = br###"
+        let input = r###"
             foobar;
-        "###.to_vec();
+        "###.to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
         assert_eq!(1, program.stmts.len());
 
         let stmt = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
@@ -839,11 +778,11 @@ mod tests {
 
     #[test]
     fn test_integer_literal_expressions() -> Result<()> {
-        let input = br###"
+        let input = r###"
             5;
-        "###.to_vec();
+        "###.to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
         assert_eq!(1, program.stmts.len());
 
         let stmt = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
@@ -859,12 +798,12 @@ mod tests {
 
     #[test]
     fn test_boolean_expressions() -> Result<()> {
-        let input = br###"
+        let input = r###"
             true;
             false;
-        "###.to_vec();
+        "###.to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
         assert_eq!(2, program.stmts.len());
 
         if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
@@ -892,7 +831,7 @@ mod tests {
         ];
 
         for tt in tests {
-            let program = parse(tt.0.into_bytes().bytes())?;
+            let program = parse(tt.0)?;
             assert_eq!(1, program.stmts.len());
 
             let stmt = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
@@ -929,7 +868,7 @@ mod tests {
         ];
 
         for tt in tests {
-            let program = parse(tt.0.into_bytes().bytes())?;
+            let program = parse(tt.0)?;
             assert_eq!(1, program.stmts.len());
 
             let stmt = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
@@ -976,7 +915,7 @@ mod tests {
         ];
 
         for tt in tests {
-            let program = parse(tt.0.as_bytes().bytes())?;
+            let program = parse(tt.0)?;
             assert_eq!(tt.1, format!("{}", program));
         }
 
@@ -985,11 +924,11 @@ mod tests {
 
     #[test]
     fn test_parsing_if_expressions() -> Result<()> {
-        let input = br###"
+        let input = r###"
             if (x < y) { x }
-        "###.to_vec();
+        "###.to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
         assert_eq!(1, program.stmts.len());
 
         let if_expr = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
@@ -1021,11 +960,11 @@ mod tests {
 
     #[test]
     fn test_parsing_if_else_expressions() -> Result<()> {
-        let input = br###"
+        let input = r###"
             if (x < y) { x } else { y }
-        "###.to_vec();
+        "###.to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
         assert_eq!(1, program.stmts.len());
 
         let if_expr = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
@@ -1065,11 +1004,11 @@ mod tests {
 
     #[test]
     fn test_parsing_function_literals() -> Result<()> {
-        let input = br###"
+        let input = r###"
             fn(x, y) { x + y }
-        "###.to_vec();
+        "###.to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
         assert_eq!(1, program.stmts.len());
 
         let fn_expr = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
@@ -1107,7 +1046,7 @@ mod tests {
         ];
 
         for tt in tests {
-            let program = parse(tt.0.as_bytes().bytes())?;
+            let program = parse(tt.0)?;
             let fn_expr = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
                 if let Expr::Fn(f) = &x.expr {
                     f
@@ -1130,11 +1069,11 @@ mod tests {
 
     #[test]
     fn test_fn_call_parsing() -> Result<()> {
-        let input = br###"
+        let input = r###"
             add(1, 2 * 3, 4 + 5);
-        "###.to_vec();
+        "###.to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
         assert_eq!(1, program.stmts.len());
 
         let call_expr = if let Stmt::Expression(x) = program.stmts.get(0).unwrap() {
@@ -1160,9 +1099,9 @@ mod tests {
 
     #[test]
     fn test_string_expressions() -> Result<()> {
-        let input = b"\"hello world\";".to_vec();
+        let input = "\"hello world\";".to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
 
         assert_eq!(1, program.stmts.len());
 
@@ -1181,9 +1120,9 @@ mod tests {
 
     #[test]
     fn test_array_expressions() -> Result<()> {
-        let input = b"[1, 2 * 2, 3 + 3]".to_vec();
+        let input = "[1, 2 * 2, 3 + 3]".to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
 
         assert_eq!(1, program.stmts.len());
 
@@ -1204,9 +1143,9 @@ mod tests {
 
     #[test]
     fn test_array_index_expression() -> Result<()> {
-        let input = b"myArray[1 * 1]".to_vec();
+        let input = "myArray[1 * 1]".to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
 
         assert_eq!(1, program.stmts.len());
 
@@ -1226,9 +1165,9 @@ mod tests {
 
     #[test]
     fn test_parsing_empty_hash_literal() -> Result<()> {
-        let input = b"{}".to_vec();
+        let input = "{}".to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
         assert_eq!(1, program.stmts.len());
 
         if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
@@ -1246,9 +1185,9 @@ mod tests {
 
     #[test]
     fn test_parsing_hash_literals_string_keys() -> Result<()> {
-        let input = b"{\"one\": 1, \"two\": 2, \"three\": 3}".to_vec();
+        let input = "{\"one\": 1, \"two\": 2, \"three\": 3}".to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
 
         let tests = HashMap::from([
             ("one".to_string(), 1),
@@ -1282,9 +1221,9 @@ mod tests {
 
     #[test]
     fn test_parsing_hash_literals_boolean_keys() -> Result<()> {
-        let input = b"{true: 1, false: 2}".to_vec();
+        let input = "{true: 1, false: 2}".to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
 
         let tests = HashMap::from([
             (true, 1),
@@ -1317,9 +1256,9 @@ mod tests {
 
     #[test]
     fn test_parsing_hash_literals_int_keys() -> Result<()> {
-        let input = b"{1: \"one\", 2: \"two\"}".to_vec();
+        let input = "{1: \"one\", 2: \"two\"}".to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
 
         let tests = HashMap::from([
             (1, "one".to_string()),
@@ -1356,9 +1295,9 @@ mod tests {
 
     #[test]
     fn test_parsing_hash_literals_with_expressions() -> Result<()> {
-        let input = b"{\"one\": 0 + 1, \"two\": 10 - 8, \"three\": 15 / 5}".to_vec();
+        let input = "{\"one\": 0 + 1, \"two\": 10 - 8, \"three\": 15 / 5}".to_string();
 
-        let program = parse(input.bytes())?;
+        let program = parse(input)?;
 
         assert_eq!(1, program.stmts.len());
 
@@ -1383,8 +1322,8 @@ mod tests {
 
     #[test]
     fn test_parsing_macro_literals() -> Result<()> {
-        let input = b"macro(x, y) { x + y; }".to_vec();
-        let program = parse(input.bytes())?;
+        let input = "macro(x, y) { x + y; }".to_string();
+        let program = parse(input)?;
         assert_eq!(1, program.stmts.len());
 
         if let Stmt::Expression(e) = program.stmts.get(0).unwrap() {
