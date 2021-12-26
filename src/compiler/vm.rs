@@ -41,24 +41,13 @@ impl Vm {
 
                     self.push(self.constants.get(const_idx).unwrap().clone())?;
                 },
-                OP_ADD => {
-                    let right = self.pop()?;
-                    let right_val = match right {
-                        MObject::Int(x) => x.value,
-                        _ => return Err(Error::new(format!("cannot add object: {}", right))),
-                    };
-
-                    let left = self.pop()?;
-
-                    let left_val = match left {
-                        MObject::Int(x) => x.value,
-                        _ => return Err(Error::new(format!("cannot add object: {}", left))),
-                    };
-
-                    self.push(MObject::Int(Integer { value: left_val + right_val }))?;
-                },
+                OP_ADD..=OP_DIV => self.arithmetic_op(*op)?,
                 OP_POP => { self.pop()?; },
-                _ => return Err(Error::new(format!("Invalid Opcode: {:x}", op))),
+                _ => {
+                    let code = MCode::new();
+                    let def = code.lookup(op)?;
+                    return Err(Error::new(format!("Opcode not implemented: {}", def.name)))
+                },
             };
         }
 
@@ -86,6 +75,30 @@ impl Vm {
             },
             None => Err(Error::new("Stack is empty".to_string())),
         }
+    }
+
+    fn arithmetic_op(&mut self, op: u8) -> Result<()> {
+        let right = self.pop()?;
+        let right_val = match right {
+            MObject::Int(x) => x.value,
+            _ => return Err(Error::new(format!("object not an integer: {}", right))),
+        };
+
+        let left = self.pop()?;
+
+        let left_val = match left {
+            MObject::Int(x) => x.value,
+            _ => return Err(Error::new(format!("object not an integer: {}", left))),
+        };
+
+        let value = match op {
+            OP_ADD => left_val + right_val,
+            OP_SUB => left_val - right_val,
+            OP_MUL => left_val * right_val,
+            OP_DIV => left_val / right_val,
+            _ => unreachable!(),
+        };
+        self.push(MObject::Int(Integer { value }))
     }
 }
 
@@ -160,6 +173,15 @@ mod tests {
             TestCase { input: "1".to_string(), expected: i_to_o(1) },
             TestCase { input: "2".to_string(), expected: i_to_o(2) },
             TestCase { input: "1 + 2".to_string(), expected: i_to_o(3) },
+            TestCase { input: "1 - 2".to_string(), expected: i_to_o(-1) },
+            TestCase { input: "1 * 2".to_string(), expected: i_to_o(2) },
+            TestCase { input: "4 / 2".to_string(), expected: i_to_o(2) },
+            TestCase { input: "50 / 2 * 2 + 10 - 5".to_string(), expected: i_to_o(55) },
+            TestCase { input: "5 + 5 + 5 + 5 - 10".to_string(), expected: i_to_o(10) },
+            TestCase { input: "2 * 2 * 2 * 2 * 2".to_string(), expected: i_to_o(32) },
+            TestCase { input: "5 * 2 + 10".to_string(), expected: i_to_o(20) },
+            TestCase { input: "5 + 2 * 10".to_string(), expected: i_to_o(25) },
+            TestCase { input: "5 * (2 + 10)".to_string(), expected: i_to_o(60) },
         ];
 
         run_vm_tests(&tests)

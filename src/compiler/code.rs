@@ -12,8 +12,11 @@ pub type Operand = Vec<isize>;
 pub type Opcode = u8;
 
 pub const OP_CONSTANT: u8    = 0;
-pub const OP_ADD: u8         = 1;
-pub const OP_POP: u8         = 2;
+pub const OP_POP: u8         = 1;
+pub const OP_ADD: u8         = 2;
+pub const OP_SUB: u8         = 3;
+pub const OP_MUL: u8         = 4;
+pub const OP_DIV: u8         = 5;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -29,8 +32,11 @@ impl MCode {
     pub fn new() -> Self {
         let definitions = HashMap::from([
             (OP_CONSTANT, Definition { name: "OpConstant".to_string(), operand_widths: vec![2] }),
-            (OP_ADD, Definition { name: "OpAdd".to_string(), operand_widths: vec![] }),
             (OP_POP, Definition { name: "OpPop".to_string(), operand_widths: vec![] }),
+            (OP_ADD, Definition { name: "OpAdd".to_string(), operand_widths: vec![] }),
+            (OP_SUB, Definition { name: "OpSub".to_string(), operand_widths: vec![] }),
+            (OP_MUL, Definition { name: "OpMul".to_string(), operand_widths: vec![] }),
+            (OP_DIV, Definition { name: "OpDiv".to_string(), operand_widths: vec![] }),
         ]);
 
         Self {
