@@ -46,6 +46,12 @@ impl Compiler {
             MNode::Expr(e) => {
                 match e {
                     Expr::In(infix) => {
+                        if infix.operator.as_str() == "<" {
+                            self.compile(MNode::Expr(*infix.right))?;
+                            self.compile(MNode::Expr(*infix.left))?;
+                            self.emit(OP_GREATER_THAN, vec![]);
+                            return Ok(());
+                        }
                         self.compile(MNode::Expr(*infix.left))?;
                         self.compile(MNode::Expr(*infix.right))?;
                         match infix.operator.as_str() {
@@ -53,6 +59,9 @@ impl Compiler {
                             "-" => self.emit(OP_SUB, vec![]),
                             "*" => self.emit(OP_MUL, vec![]),
                             "/" => self.emit(OP_DIV, vec![]),
+                            "==" => self.emit(OP_EQUAL, vec![]),
+                            "!=" => self.emit(OP_NOT_EQUAL, vec![]),
+                            ">" => self.emit(OP_GREATER_THAN, vec![]),
                             _ => return Err(Error::new(format!("unknown operator: {}", infix.operator))),
                         };
                     },
@@ -60,6 +69,13 @@ impl Compiler {
                         let literal = Integer { value: int.value };
                         self.constants.push(MObject::Int(literal));
                         self.emit(OP_CONSTANT, vec![(self.constants.len() - 1) as isize]);
+                    },
+                    Expr::Bool(x) => {
+                        if x.value {
+                            self.emit(OP_TRUE, vec![]);
+                        } else {
+                            self.emit(OP_FALSE, vec![]);
+                        }
                     },
                     _ => return Err(Error::new(format!("Compilation not implemented for: {}", e))),
                 };
@@ -187,6 +203,91 @@ mod tests {
                     code.make(&OP_CONSTANT, &vec![0]),
                     code.make(&OP_CONSTANT, &vec![1]),
                     code.make(&OP_DIV, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_boolean_expressions() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: "true".to_string(),
+                expected_constants: vec![],
+                expected_instructions: vec![
+                    code.make(&OP_TRUE, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: "false".to_string(),
+                expected_constants: vec![],
+                expected_instructions: vec![
+                    code.make(&OP_FALSE, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: "1 < 2".to_string(),
+                expected_constants: vec![2, 1].iter().map(|i| i_to_o(*i) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_GREATER_THAN, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: "1 > 2".to_string(),
+                expected_constants: vec![1, 2].iter().map(|i| i_to_o(*i) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_GREATER_THAN, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: "1 == 2".to_string(),
+                expected_constants: vec![1, 2].iter().map(|i| i_to_o(*i) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_EQUAL, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: "1 != 2".to_string(),
+                expected_constants: vec![1, 2].iter().map(|i| i_to_o(*i) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_NOT_EQUAL, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: "true == false".to_string(),
+                expected_constants: vec![],
+                expected_instructions: vec![
+                    code.make(&OP_TRUE, &vec![]),
+                    code.make(&OP_FALSE, &vec![]),
+                    code.make(&OP_EQUAL, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: "true != false".to_string(),
+                expected_constants: vec![],
+                expected_instructions: vec![
+                    code.make(&OP_TRUE, &vec![]),
+                    code.make(&OP_FALSE, &vec![]),
+                    code.make(&OP_NOT_EQUAL, &vec![]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

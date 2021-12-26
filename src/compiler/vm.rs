@@ -14,7 +14,7 @@ pub struct Vm {
     constants: Vec<MObject>,
 
     stack: Vec<MObject>,
-    last_popped_element: Option<MObject>,
+    last_op_pop_element: Option<MObject>,
 }
 
 impl Vm {
@@ -23,7 +23,7 @@ impl Vm {
             instructions: bytecode.instructions,
             constants: bytecode.contstants,
             stack: Vec::with_capacity(STACK_SIZE),
-            last_popped_element: None,
+            last_op_pop_element: None,
         }
     }
 
@@ -31,21 +31,24 @@ impl Vm {
         let mut ip = 0;
 
         while ip < self.instructions.len() {
-            let op = self.instructions.get(ip).unwrap();
+            let op = *self.instructions.get(ip).unwrap();
             ip += 1;
 
-            match *op {
+            match op {
                 OP_CONSTANT => {
                     let const_idx: usize = BigEndian::read_u16(&self.instructions[ip as usize..]).into();
                     ip += 2;
 
                     self.push(self.constants.get(const_idx).unwrap().clone())?;
                 },
-                OP_ADD..=OP_DIV => self.arithmetic_op(*op)?,
-                OP_POP => { self.pop()?; },
+                OP_ADD..=OP_DIV => self.arithmetic_op(op)?,
+                OP_TRUE => self.push(TRUE)?,
+                OP_FALSE => self.push(FALSE)?,
+                OP_EQUAL..=OP_GREATER_THAN => self.comparison_op(op)?,
+                OP_POP => self.last_op_pop_element = Some(self.pop()?),
                 _ => {
                     let code = MCode::new();
-                    let def = code.lookup(op)?;
+                    let def = code.lookup(&op)?;
                     return Err(Error::new(format!("Opcode not implemented: {}", def.name)))
                 },
             };
@@ -55,7 +58,7 @@ impl Vm {
     }
 
     pub fn stack_top(&self) -> Option<&MObject> {
-        self.last_popped_element.as_ref()
+        self.last_op_pop_element.as_ref()
     }
 
     fn push(&mut self, o: MObject) -> Result<()> {
@@ -67,12 +70,9 @@ impl Vm {
         }
     }
 
-    fn pop(&mut self) -> Result<&MObject> {
+    fn pop(&mut self) -> Result<MObject> {
         match self.stack.pop() {
-            Some(x) => {
-                self.last_popped_element = Some(x);
-                Ok(self.last_popped_element.as_ref().unwrap())
-            },
+            Some(x) => Ok(x),
             None => Err(Error::new("Stack is empty".to_string())),
         }
     }
@@ -85,7 +85,6 @@ impl Vm {
         };
 
         let left = self.pop()?;
-
         let left_val = match left {
             MObject::Int(x) => x.value,
             _ => return Err(Error::new(format!("object not an integer: {}", left))),
@@ -100,6 +99,39 @@ impl Vm {
         };
         self.push(MObject::Int(Integer { value }))
     }
+
+    fn comparison_op(&mut self, op: u8) -> Result<()> {
+        let right = self.pop()?;
+        let left = self.pop()?;
+
+        if let MObject::Int(left_val) = left {
+            if let MObject::Int(right_val) = right {
+                let value = match op {
+                    OP_EQUAL => left_val == right_val,
+                    OP_NOT_EQUAL => left_val != right_val,
+                    OP_GREATER_THAN => left_val > right_val,
+                    _ => unreachable!(),
+                };
+                return self.push(native_bool_to_boolean(value));
+            }
+        } else if let MObject::Bool(left_val) = left {
+            if let MObject::Bool(right_val) = right {
+                let value = match op {
+                    OP_EQUAL => left_val == right_val,
+                    OP_NOT_EQUAL => left_val != right_val,
+                    _ => unreachable!(),
+                };
+                return self.push(native_bool_to_boolean(value));
+            }
+        };
+
+        Err(Error::new(format!("type mismatch: {} {} {}", left, op, right)))
+    }
+}
+
+#[inline]
+fn native_bool_to_boolean(b: bool) -> MObject {
+    if b { TRUE } else { FALSE }
 }
 
 #[cfg(test)]
@@ -182,6 +214,33 @@ mod tests {
             TestCase { input: "5 * 2 + 10".to_string(), expected: i_to_o(20) },
             TestCase { input: "5 + 2 * 10".to_string(), expected: i_to_o(25) },
             TestCase { input: "5 * (2 + 10)".to_string(), expected: i_to_o(60) },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_boolean_expressions() -> Result<()> {
+        let tests = vec![
+            TestCase { input: "true".to_string(), expected: TRUE },
+            TestCase { input: "false".to_string(), expected: FALSE },
+            TestCase { input: "1 < 2".to_string(), expected: TRUE },
+            TestCase { input: "1 > 2".to_string(), expected: FALSE },
+            TestCase { input: "1 < 1".to_string(), expected: FALSE },
+            TestCase { input: "1 > 1".to_string(), expected: FALSE },
+            TestCase { input: "1 == 1".to_string(), expected: TRUE },
+            TestCase { input: "1 != 1".to_string(), expected: FALSE },
+            TestCase { input: "1 == 2".to_string(), expected: FALSE },
+            TestCase { input: "1 != 2".to_string(), expected: TRUE },
+            TestCase { input: "true == true".to_string(), expected: TRUE },
+            TestCase { input: "false == false".to_string(), expected: TRUE },
+            TestCase { input: "true == false".to_string(), expected: FALSE },
+            TestCase { input: "true != false".to_string(), expected: TRUE },
+            TestCase { input: "false != true".to_string(), expected: TRUE },
+            TestCase { input: "(1 < 2) == true".to_string(), expected: TRUE },
+            TestCase { input: "(1 < 2) == false".to_string(), expected: FALSE },
+            TestCase { input: "(1 > 2) == true".to_string(), expected: FALSE },
+            TestCase { input: "(1 > 2) == false".to_string(), expected: TRUE },
         ];
 
         run_vm_tests(&tests)

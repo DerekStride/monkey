@@ -17,6 +17,11 @@ pub const OP_ADD: u8         = 2;
 pub const OP_SUB: u8         = 3;
 pub const OP_MUL: u8         = 4;
 pub const OP_DIV: u8         = 5;
+pub const OP_TRUE: u8        = 6;
+pub const OP_FALSE: u8       = 7;
+pub const OP_EQUAL: u8              = 8;
+pub const OP_NOT_EQUAL: u8          = 9;
+pub const OP_GREATER_THAN: u8       = 10;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -37,6 +42,11 @@ impl MCode {
             (OP_SUB, Definition { name: "OpSub".to_string(), operand_widths: vec![] }),
             (OP_MUL, Definition { name: "OpMul".to_string(), operand_widths: vec![] }),
             (OP_DIV, Definition { name: "OpDiv".to_string(), operand_widths: vec![] }),
+            (OP_TRUE, Definition { name: "OpTrue".to_string(), operand_widths: vec![] }),
+            (OP_FALSE, Definition { name: "OpFalse".to_string(), operand_widths: vec![] }),
+            (OP_EQUAL, Definition { name: "OpEqual".to_string(), operand_widths: vec![] }),
+            (OP_NOT_EQUAL, Definition { name: "OpNotEqual".to_string(), operand_widths: vec![] }),
+            (OP_GREATER_THAN, Definition { name: "OpGreatherThan".to_string(), operand_widths: vec![] }),
         ]);
 
         Self {
