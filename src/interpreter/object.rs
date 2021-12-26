@@ -7,6 +7,10 @@ use crate::{
 };
 use std::{fmt, collections::HashMap};
 
+pub const TRUE: MObject = MObject::Bool(Boolean { value: true });
+pub const FALSE: MObject = MObject::Bool(Boolean { value: false });
+pub const NULL: MObject = MObject::Null;
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Hash)]
 pub struct Integer {
     pub value: i128,

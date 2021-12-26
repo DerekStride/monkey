@@ -38,6 +38,7 @@ impl Compiler {
                 match s {
                     Stmt::Expression(stmt) => {
                         self.compile(MNode::Expr(stmt.expr))?;
+                        self.emit(OP_POP, vec![]);
                     },
                     _ => return Err(Error::new(format!("Compilation not implemented for: {}", s))),
                 };
@@ -153,6 +154,7 @@ mod tests {
                     code.make(&OP_CONSTANT, &vec![0]),
                     code.make(&OP_CONSTANT, &vec![1]),
                     code.make(&OP_ADD, &vec![]),
+                    code.make(&OP_POP, &vec![]),
                 ],
             },
         ];

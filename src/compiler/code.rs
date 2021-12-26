@@ -13,11 +13,11 @@ pub type Opcode = u8;
 
 pub const OP_CONSTANT: u8    = 0;
 pub const OP_ADD: u8         = 1;
+pub const OP_POP: u8         = 2;
 
 #[derive(Clone)]
 pub struct Definition {
     pub name: String,
-    pub op: Opcode,
     pub operand_widths: Vec<u8>,
 }
 
@@ -28,8 +28,9 @@ pub struct MCode {
 impl MCode {
     pub fn new() -> Self {
         let definitions = HashMap::from([
-            (OP_CONSTANT, Definition { name: "OpConstant".to_string(), op: OP_CONSTANT, operand_widths: vec![2] }),
-            (OP_ADD, Definition { name: "OpAdd".to_string(), op: OP_ADD, operand_widths: vec![] }),
+            (OP_CONSTANT, Definition { name: "OpConstant".to_string(), operand_widths: vec![2] }),
+            (OP_ADD, Definition { name: "OpAdd".to_string(), operand_widths: vec![] }),
+            (OP_POP, Definition { name: "OpPop".to_string(), operand_widths: vec![] }),
         ]);
 
         Self {
@@ -46,12 +47,12 @@ impl MCode {
 
     pub fn make(&self, op: &Opcode, operands: &Operand) -> Instructions {
         let mut instruction = vec![];
-        let def = match self.definitions.get(&(*op as u8)) {
+        let def = match self.definitions.get(op) {
             Some(x) => x,
             None => return instruction,
         };
 
-        instruction.push(*op as u8);
+        instruction.push(*op);
 
         for (i, o) in operands.iter().enumerate() {
             match def.operand_widths.get(i) {
@@ -147,8 +148,9 @@ mod tests {
     #[test]
     fn test_make() -> Result<()> {
         let tests = vec![
-            (OP_ADD, vec![], vec![OP_ADD as u8]),
-            (OP_CONSTANT, vec![65534], vec![OP_CONSTANT as u8, 255, 254]),
+            (OP_ADD, vec![], vec![OP_ADD]),
+            (OP_POP, vec![], vec![OP_POP]),
+            (OP_CONSTANT, vec![65534], vec![OP_CONSTANT, 255, 254]),
         ];
 
         for tt in tests {
@@ -168,13 +170,14 @@ mod tests {
     fn test_read_operands() -> Result<()> {
         let tests = vec![
             (OP_CONSTANT, vec![65534], 2),
+            (OP_POP, vec![], 0),
         ];
 
         let mcode = MCode::new();
 
         for tt in tests {
             let instruction = make(&tt.0, &tt.1);
-            let def = mcode.lookup(&(tt.0 as u8))?;
+            let def = mcode.lookup(&tt.0)?;
 
             let (operands_read, n) = MCode::read_operands(&def, &instruction[1..])?;
 

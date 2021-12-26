@@ -3,7 +3,7 @@ use std::io::{self, Read, Write, BufRead, BufReader};
 use crate::{
     lexer::lexer::Lexer,
     parser::parser::Parser,
-    interpreter::{evaluator, environment::Environment, object::MObject},
+    interpreter::{evaluator, environment::Environment, object::{MObject, NULL}},
     error::Result,
     compiler::{compiler::Compiler, vm::Vm},
     ast::MNode,
@@ -52,7 +52,7 @@ pub fn vm(node: MNode, _: &mut Environment) -> Result<MObject> {
 
     match vm.stack_top() {
         Some(x) => Ok(x.clone()),
-        None => Ok(MObject::Null),
+        None => Ok(NULL),
     }
 }
 

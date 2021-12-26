@@ -156,7 +156,7 @@ fn first(args: &mut Vec<MObject>) -> Result<MObject> {
         if let Some(o) = arr.elements.get(0) {
             Ok(o.clone())
         } else {
-            Ok(MObject::Null)
+            Ok(NULL)
         }
     } else {
         Ok(
@@ -186,7 +186,7 @@ fn last(args: &mut Vec<MObject>) -> Result<MObject> {
         if let Some(o) = arr.elements.last() {
             Ok(o.clone())
         } else {
-            Ok(MObject::Null)
+            Ok(NULL)
         }
     } else {
         Ok(
@@ -217,7 +217,7 @@ fn rest(args: &mut Vec<MObject>) -> Result<MObject> {
             let elements = arr.elements[1..].to_vec();
             Ok(MObject::Array(MArray { elements }))
         } else {
-            Ok(MObject::Null)
+            Ok(NULL)
         }
     } else {
         Ok(
@@ -269,5 +269,5 @@ fn puts(args: &mut Vec<MObject>) -> Result<MObject> {
 
     output.flush()?;
 
-    Ok(MObject::Null)
+    Ok(NULL)
 }

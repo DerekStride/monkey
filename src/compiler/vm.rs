@@ -14,7 +14,7 @@ pub struct Vm {
     constants: Vec<MObject>,
 
     stack: Vec<MObject>,
-    sp: usize,
+    last_popped_element: Option<MObject>,
 }
 
 impl Vm {
@@ -23,7 +23,7 @@ impl Vm {
             instructions: bytecode.instructions,
             constants: bytecode.contstants,
             stack: Vec::with_capacity(STACK_SIZE),
-            sp: 0,
+            last_popped_element: None,
         }
     }
 
@@ -43,12 +43,13 @@ impl Vm {
                 },
                 OP_ADD => {
                     let right = self.pop()?;
-                    let left = self.pop()?;
-
                     let right_val = match right {
                         MObject::Int(x) => x.value,
                         _ => return Err(Error::new(format!("cannot add object: {}", right))),
                     };
+
+                    let left = self.pop()?;
+
                     let left_val = match left {
                         MObject::Int(x) => x.value,
                         _ => return Err(Error::new(format!("cannot add object: {}", left))),
@@ -56,31 +57,33 @@ impl Vm {
 
                     self.push(MObject::Int(Integer { value: left_val + right_val }))?;
                 },
+                OP_POP => { self.pop()?; },
                 _ => return Err(Error::new(format!("Invalid Opcode: {:x}", op))),
             };
-
         }
 
         Ok(())
     }
 
     pub fn stack_top(&self) -> Option<&MObject> {
-        self.stack.last()
+        self.last_popped_element.as_ref()
     }
 
     fn push(&mut self, o: MObject) -> Result<()> {
-        if self.sp < STACK_SIZE {
+        if self.stack.len() < STACK_SIZE {
             self.stack.push(o);
-            self.sp += 1;
             Ok(())
         } else {
             Err(Error::new("Stack overflow".to_string()))
         }
     }
 
-    fn pop(&mut self) -> Result<MObject> {
+    fn pop(&mut self) -> Result<&MObject> {
         match self.stack.pop() {
-            Some(x) => Ok(x),
+            Some(x) => {
+                self.last_popped_element = Some(x);
+                Ok(self.last_popped_element.as_ref().unwrap())
+            },
             None => Err(Error::new("Stack is empty".to_string())),
         }
     }

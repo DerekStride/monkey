@@ -10,10 +10,6 @@ use crate::{
     ast::*, lexer::{token::Token, token_type::TokenType},
 };
 
-const TRUE: MObject = MObject::Bool(Boolean { value: true });
-const FALSE: MObject = MObject::Bool(Boolean { value: false });
-const NULL: MObject = MObject::Null;
-
 #[inline]
 fn native_bool_to_boolean(b: bool) -> MObject {
     if b { TRUE } else { FALSE }
