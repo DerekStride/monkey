@@ -3,13 +3,15 @@ use std::io::{self, Read, Write, BufRead, BufReader};
 use crate::{
     lexer::lexer::Lexer,
     parser::parser::Parser,
-    interpreter::{evaluator, environment::Environment},
-    error::Error,
+    interpreter::{evaluator, environment::Environment, object::MObject},
+    error::Result,
+    compiler::{compiler::Compiler, vm::Vm},
+    ast::MNode,
 };
 
 const PROMPT: &[u8; 4] = b">>> ";
 
-pub fn start<I: Read, O: Write>(input: I, output: &mut O) -> Result<(), Error> {
+pub fn start<I: Read, O: Write>(input: I, output: &mut O, engine: fn(MNode, &mut Environment) -> Result<MObject>) -> Result<()> {
     let mut bufio = BufReader::new(input);
     let mut buf = String::new();
     let mut env = Environment::new();
@@ -32,11 +34,25 @@ pub fn start<I: Read, O: Write>(input: I, output: &mut O) -> Result<(), Error> {
         evaluator::define_macros(&mut program, &mut macro_env);
         let expanded = evaluator::expand_macros(program, &mut macro_env);
 
-        let evalutated = evaluator::eval(expanded, &mut env)?;
+        let evaluated = engine(expanded, &mut env)?;
 
-        output.write_all(format!("{}\n", evalutated).as_bytes())?;
+        output.write_all(format!("{}\n", evaluated).as_bytes())?;
         output.flush()?;
         buf.clear()
+    }
+}
+
+pub fn vm(node: MNode, _: &mut Environment) -> Result<MObject> {
+    let mut compiler = Compiler::new();
+    compiler.compile(node)?;
+
+    let mut vm = Vm::new(compiler.bytecode());
+
+    vm.run()?;
+
+    match vm.stack_top() {
+        Some(x) => Ok(x.clone()),
+        None => Ok(MObject::Null),
     }
 }
 
