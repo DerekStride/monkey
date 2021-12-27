@@ -39,7 +39,7 @@ impl Vm {
                     let const_idx: usize = BigEndian::read_u16(&self.instructions[ip as usize..]).into();
                     ip += 2;
 
-                    self.push(self.constants.get(const_idx).unwrap().clone())?;
+                    self.push(self.constants[const_idx].clone())?;
                 },
                 OP_ADD..=OP_DIV => self.arithmetic_op(op)?,
                 OP_TRUE => self.push(TRUE)?,
@@ -53,12 +53,19 @@ impl Vm {
                     };
                 },
                 OP_BANG => {
-                    let object = self.pop()?;
-                    match object {
+                    match self.pop()? {
                         MObject::Bool(x) => self.push(native_bool_to_boolean(!x.value))?,
                         _ => self.push(FALSE)?,
                     };
                 },
+                OP_JUMP_NOT_TRUE => {
+                    if is_truthy(self.pop()?) {
+                        ip += 2;
+                    } else {
+                        ip = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    };
+                },
+                OP_JUMP => ip = BigEndian::read_u16(&self.instructions[ip..]).into(),
                 OP_POP => self.last_op_pop_element = Some(self.pop()?),
                 _ => {
                     let code = MCode::new();
@@ -148,6 +155,16 @@ fn native_bool_to_boolean(b: bool) -> MObject {
     if b { TRUE } else { FALSE }
 }
 
+#[inline]
+fn is_truthy(o: MObject) -> bool {
+    match o {
+        TRUE => true,
+        FALSE => false,
+        NULL => false,
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,7 +220,10 @@ mod tests {
 
             let mut vm = Vm::new(compiler.bytecode());
 
-            vm.run()?;
+            match vm.run() {
+                Ok(_) => {},
+                Err(e) => panic!("Error:\n{}\n\n{}\n", e, compiler),
+            };
 
             let stack_top = vm.stack_top().unwrap();
 
@@ -260,6 +280,21 @@ mod tests {
             TestCase { input: "(1 < 2) == false".to_string(), expected: FALSE },
             TestCase { input: "(1 > 2) == true".to_string(), expected: FALSE },
             TestCase { input: "(1 > 2) == false".to_string(), expected: TRUE },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_if_expressions() -> Result<()> {
+        let tests = vec![
+            TestCase { input: "if (true) { 10 }".to_string(), expected: i_to_o(10) },
+            TestCase { input: "if (true) { 10 } else { 20 }".to_string(), expected: i_to_o(10) },
+            TestCase { input: "if (false) { 10 } else { 20 } ".to_string(), expected: i_to_o(20) },
+            TestCase { input: "if (1) { 10 }".to_string(), expected: i_to_o(10) },
+            TestCase { input: "if (1 < 2) { 10 }".to_string(), expected: i_to_o(10) },
+            TestCase { input: "if (1 < 2) { 10 } else { 20 }".to_string(), expected: i_to_o(10) },
+            TestCase { input: "if (1 > 2) { 10 } else { 20 }".to_string(), expected: i_to_o(20) },
         ];
 
         run_vm_tests(&tests)
