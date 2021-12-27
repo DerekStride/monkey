@@ -55,6 +55,7 @@ impl Vm {
                 OP_BANG => {
                     match self.pop()? {
                         MObject::Bool(x) => self.push(native_bool_to_boolean(!x.value))?,
+                        NULL => self.push(TRUE)?,
                         _ => self.push(FALSE)?,
                     };
                 },
@@ -281,6 +282,7 @@ mod tests {
             TestCase { input: "(1 < 2) == false".to_string(), expected: FALSE },
             TestCase { input: "(1 > 2) == true".to_string(), expected: FALSE },
             TestCase { input: "(1 > 2) == false".to_string(), expected: TRUE },
+            TestCase { input: "!(if (false) { 5; })".to_string(), expected: TRUE },
         ];
 
         run_vm_tests(&tests)
@@ -298,6 +300,7 @@ mod tests {
             TestCase { input: "if (1 > 2) { 10 } else { 20 }".to_string(), expected: i_to_o(20) },
             TestCase { input: "if (false) { 10 }".to_string(), expected: NULL },
             TestCase { input: "if (1 > 2) { 10 }".to_string(), expected: NULL },
+            TestCase { input: "if ((if (false) { 10 })) { 10 } else { 20 }".to_string(), expected: i_to_o(20) },
         ];
 
         run_vm_tests(&tests)
