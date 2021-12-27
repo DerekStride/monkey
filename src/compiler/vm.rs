@@ -66,6 +66,7 @@ impl Vm {
                     };
                 },
                 OP_JUMP => ip = BigEndian::read_u16(&self.instructions[ip..]).into(),
+                OP_NULL => self.push(NULL)?,
                 OP_POP => self.last_op_pop_element = Some(self.pop()?),
                 _ => {
                     let code = MCode::new();
@@ -295,6 +296,8 @@ mod tests {
             TestCase { input: "if (1 < 2) { 10 }".to_string(), expected: i_to_o(10) },
             TestCase { input: "if (1 < 2) { 10 } else { 20 }".to_string(), expected: i_to_o(10) },
             TestCase { input: "if (1 > 2) { 10 } else { 20 }".to_string(), expected: i_to_o(20) },
+            TestCase { input: "if (false) { 10 }".to_string(), expected: NULL },
+            TestCase { input: "if (1 > 2) { 10 }".to_string(), expected: NULL },
         ];
 
         run_vm_tests(&tests)

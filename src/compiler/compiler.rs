@@ -134,26 +134,24 @@ impl Compiler {
                         self.compile(MNode::Stmt(Stmt::Block(if_expr.consequence)))?;
                         if self.last_instruction_is_pop() { self.remove_last_pop() };
 
+                        // Emit a Jump Opcode with a placeholder offset to rewrite later.
+                        let jump_loc = self.instructions.len();
+                        self.emit(OP_JUMP, vec![0]);
+
+                        // Rewrite the JumpNotTrue offset placeholder.
+                        let after_conseqence_loc = self.instructions.len();
+                        self.change_operand(jump_not_true_loc, &vec![after_conseqence_loc as isize]);
+
                         if let Some(alternative) = if_expr.alternative {
-                            // Emit a Jump Opcode with a placeholder offset to rewrite later.
-                            let jump_loc = self.instructions.len();
-                            self.emit(OP_JUMP, vec![0]);
-
-                            // Rewrite the JumpNotTrue offset placeholder.
-                            let after_conseqence_loc = self.instructions.len();
-                            self.change_operand(jump_not_true_loc, &vec![after_conseqence_loc as isize]);
-
                             self.compile(MNode::Stmt(Stmt::Block(alternative)))?;
                             if self.last_instruction_is_pop() { self.remove_last_pop() };
-
-                            // Rewrite the Jump offset placeholder.
-                            let after_alternative_loc = self.instructions.len();
-                            self.change_operand(jump_loc, &vec![after_alternative_loc as isize]);
                         } else {
-                            // Rewrite the JumpNotTrue offset placeholder.
-                            let after_conseqence_loc = self.instructions.len();
-                            self.change_operand(jump_not_true_loc, &vec![after_conseqence_loc as isize]);
+                            self.emit(OP_NULL, vec![]);
                         };
+
+                        // Rewrite the Jump offset placeholder.
+                        let after_alternative_loc = self.instructions.len();
+                        self.change_operand(jump_loc, &vec![after_alternative_loc as isize]);
                     },
                     _ => return Err(Error::new(format!("Compilation not implemented for: {}", e))),
                 };
@@ -429,14 +427,18 @@ mod tests {
                     // 0000
                     code.make(&OP_TRUE, &vec![]),
                     // 0001
-                    code.make(&OP_JUMP_NOT_TRUE, &vec![7]),
+                    code.make(&OP_JUMP_NOT_TRUE, &vec![10]),
                     // 0004
                     code.make(&OP_CONSTANT, &vec![0]),
                     // 0007
-                    code.make(&OP_POP, &vec![]),
-                    // 0008
-                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_JUMP, &vec![11]),
+                    // 0010
+                    code.make(&OP_NULL, &vec![]),
                     // 0011
+                    code.make(&OP_POP, &vec![]),
+                    // 0012
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    // 0015
                     code.make(&OP_POP, &vec![]),
                 ],
             },

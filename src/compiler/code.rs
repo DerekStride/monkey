@@ -26,6 +26,7 @@ pub const OP_MINUS: u8              = 11;
 pub const OP_BANG: u8               = 12;
 pub const OP_JUMP_NOT_TRUE: u8      = 13;
 pub const OP_JUMP: u8               = 14;
+pub const OP_NULL: u8               = 15;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -55,6 +56,7 @@ impl MCode {
             (OP_BANG, Definition { name: "OpBang".to_string(), operand_widths: vec![] }),
             (OP_JUMP_NOT_TRUE, Definition { name: "OpJumpNotTrue".to_string(), operand_widths: vec![2] }),
             (OP_JUMP, Definition { name: "OpJump".to_string(), operand_widths: vec![2] }),
+            (OP_NULL, Definition { name: "OpNull".to_string(), operand_widths: vec![] }),
         ]);
 
         Self {
