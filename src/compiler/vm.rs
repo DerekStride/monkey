@@ -8,23 +8,44 @@ use crate::{
 use byteorder::{ByteOrder, BigEndian};
 
 const STACK_SIZE: usize = 2048;
+#[cfg(test)]
+const GLOBALS_SIZE: usize = 2usize.pow(16);
 
 pub struct Vm {
     instructions: Instructions,
     constants: Vec<MObject>,
+    globals: Vec<MObject>,
 
     stack: Vec<MObject>,
     last_op_pop_element: Option<MObject>,
 }
 
 impl Vm {
+    #[cfg(test)]
     pub fn new(bytecode: Bytecode) -> Self {
         Self {
             instructions: bytecode.instructions,
             constants: bytecode.contstants,
+            globals: Vec::with_capacity(GLOBALS_SIZE),
+
             stack: Vec::with_capacity(STACK_SIZE),
             last_op_pop_element: None,
         }
+    }
+
+    pub fn with_state(bytecode: Bytecode, globals: Vec<MObject>) -> Self {
+        Self {
+            instructions: bytecode.instructions,
+            constants: bytecode.contstants,
+            globals,
+
+            stack: Vec::with_capacity(STACK_SIZE),
+            last_op_pop_element: None,
+        }
+    }
+
+    pub fn globals(&self) -> Vec<MObject> {
+        self.globals.clone()
     }
 
     pub fn run(&mut self) -> Result<()> {
@@ -36,7 +57,7 @@ impl Vm {
 
             match op {
                 OP_CONSTANT => {
-                    let const_idx: usize = BigEndian::read_u16(&self.instructions[ip as usize..]).into();
+                    let const_idx: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
                     ip += 2;
 
                     self.push(self.constants[const_idx].clone())?;
@@ -65,6 +86,23 @@ impl Vm {
                     } else {
                         ip = BigEndian::read_u16(&self.instructions[ip..]).into();
                     };
+                },
+                OP_SET_GLOBAL => {
+                    let globals_idx: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    ip += 2;
+
+                    let obj = self.pop()?;
+                    self.globals.insert(globals_idx, obj);
+                },
+                OP_GET_GLOBAL => {
+                    let globals_idx: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    ip += 2;
+
+                    let obj = match self.globals.get(globals_idx) {
+                        Some(x) => (*x).clone(),
+                        None => return Err(Error::new(format!("No global found for index: {}, len: {}", globals_idx, self.globals.len()))),
+                    };
+                    self.push(obj)?;
                 },
                 OP_JUMP => ip = BigEndian::read_u16(&self.instructions[ip..]).into(),
                 OP_NULL => self.push(NULL)?,
@@ -301,6 +339,17 @@ mod tests {
             TestCase { input: "if (false) { 10 }".to_string(), expected: NULL },
             TestCase { input: "if (1 > 2) { 10 }".to_string(), expected: NULL },
             TestCase { input: "if ((if (false) { 10 })) { 10 } else { 20 }".to_string(), expected: i_to_o(20) },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_let_statements() -> Result<()> {
+        let tests = vec![
+            TestCase { input: "let one = 1; one".to_string(), expected: i_to_o(1) },
+            TestCase { input: "let one = 1; let two = 2; one + two".to_string(), expected: i_to_o(3) },
+            TestCase { input: "let one = 1; let two = one + one; one + two".to_string(), expected: i_to_o(3) },
         ];
 
         run_vm_tests(&tests)

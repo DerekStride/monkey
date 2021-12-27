@@ -1,12 +1,16 @@
-use core::fmt;
+use std::fmt;
 
 use crate::{
     interpreter::object::*,
-    compiler::code::*,
+    compiler::{
+        code::*,
+        symbol_table::SymbolTable,
+    },
     ast::*,
     error::{Result, Error},
 };
 
+#[derive(Clone)]
 pub struct Bytecode {
     pub instructions: Instructions,
     pub contstants: Vec<MObject>,
@@ -35,6 +39,7 @@ impl fmt::Display for EmittedInstruction {
 pub struct Compiler  {
     instructions: Instructions,
     constants: Vec<MObject>,
+    symbols: SymbolTable,
 
     last_emitted_instruction: Option<EmittedInstruction>,
     prev_emitted_instruction: Option<EmittedInstruction>,
@@ -43,14 +48,31 @@ pub struct Compiler  {
 }
 
 impl Compiler {
+    #[cfg(test)]
     pub fn new() -> Self {
         Self {
             instructions: Vec::new(),
             constants: Vec::new(),
+            symbols: SymbolTable::new(),
             last_emitted_instruction: None,
             prev_emitted_instruction: None,
             code: MCode::new(),
         }
+    }
+
+    pub fn with_state(symbols: SymbolTable, constants: Vec<MObject>) -> Self {
+        Self {
+            instructions: Vec::new(),
+            constants,
+            symbols,
+            last_emitted_instruction: None,
+            prev_emitted_instruction: None,
+            code: MCode::new(),
+        }
+    }
+
+    pub fn symbol_table(&self) -> SymbolTable {
+        self.symbols.clone()
     }
 
     pub fn bytecode(&self) -> Bytecode {
@@ -77,6 +99,11 @@ impl Compiler {
                         for stmt in blk.stmts {
                             self.compile(MNode::Stmt(stmt))?;
                         };
+                    },
+                    Stmt::Let(let_stmt) => {
+                        self.compile(MNode::Expr(let_stmt.value))?;
+                        let operand = self.symbols.define(let_stmt.name.value);
+                        self.emit(OP_SET_GLOBAL, vec![operand as isize]);
                     },
                     _ => return Err(Error::new(format!("Compilation not implemented for: {}", s))),
                 };
@@ -152,6 +179,13 @@ impl Compiler {
                         // Rewrite the Jump offset placeholder.
                         let after_alternative_loc = self.instructions.len();
                         self.change_operand(jump_loc, &vec![after_alternative_loc as isize]);
+                    },
+                    Expr::Ident(ident) => {
+                        let operand = match self.symbols.resolve(&ident.value) {
+                            Some(x) => x.index,
+                            None => return Err(Error::new(format!("Identifier not found: {}", ident))),
+                        };
+                        self.emit(OP_GET_GLOBAL, vec![operand as isize]);
                     },
                     _ => return Err(Error::new(format!("Compilation not implemented for: {}", e))),
                 };
@@ -461,6 +495,46 @@ mod tests {
                     // 0014
                     code.make(&OP_CONSTANT, &vec![2]),
                     // 0017
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_let_statements() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let one = 1;
+                    let two = 2;
+                "#.to_string(),
+                expected_constants: vec![1, 2].iter().map(|i| i_to_o(*i) ).collect(),
+                expected_instructions: vec![
+                    // 0000
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    // 0003
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    // 0006
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    // 0009
+                    code.make(&OP_SET_GLOBAL, &vec![1]),
+                ],
+            },
+            TestCase {
+                input: "let one = 1; one;".to_string(),
+                expected_constants: vec![1].iter().map(|i| i_to_o(*i) ).collect(),
+                expected_instructions: vec![
+                    // 0000
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    // 0003
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    // 0006
+                    code.make(&OP_GET_GLOBAL, &vec![0]),
+                    // 0009
                     code.make(&OP_POP, &vec![]),
                 ],
             },

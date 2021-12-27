@@ -27,6 +27,8 @@ pub const OP_BANG: u8               = 12;
 pub const OP_JUMP_NOT_TRUE: u8      = 13;
 pub const OP_JUMP: u8               = 14;
 pub const OP_NULL: u8               = 15;
+pub const OP_SET_GLOBAL: u8         = 16;
+pub const OP_GET_GLOBAL: u8         = 17;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -57,6 +59,8 @@ impl MCode {
             (OP_JUMP_NOT_TRUE, Definition { name: "OpJumpNotTrue".to_string(), operand_widths: vec![2] }),
             (OP_JUMP, Definition { name: "OpJump".to_string(), operand_widths: vec![2] }),
             (OP_NULL, Definition { name: "OpNull".to_string(), operand_widths: vec![] }),
+            (OP_SET_GLOBAL, Definition { name: "OpSetGlobal".to_string(), operand_widths: vec![2] }),
+            (OP_GET_GLOBAL, Definition { name: "OpGetGlobal".to_string(), operand_widths: vec![2] }),
         ]);
 
         Self {

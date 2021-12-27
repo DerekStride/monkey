@@ -11,21 +11,18 @@ mod ast;
 #[cfg(test)]
 mod test_utils;
 
-use crate::{
-    interpreter::evaluator,
-    repl::repl::{start, vm}
-};
+use crate::repl::repl::{start, Engine};
 
 fn main() {
     let args = env::args();
     let input = io::stdin();
     let mut output = io::stdout();
 
-    let engine = if args.into_iter().any(|arg| arg == "--engine=vm") {
-        vm
+    let mut engine = if args.into_iter().any(|arg| arg == "--engine=vm") {
+        Engine::vm()
     } else {
-        evaluator::eval
+        Engine::eval()
     };
 
-    start(input, &mut output, engine).unwrap();
+    start(input, &mut output, &mut engine).unwrap();
 }
