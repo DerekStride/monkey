@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     error::{Result, Error},
     compiler::code::*,
@@ -115,6 +117,28 @@ impl Vm {
                     elements.reverse();
 
                     self.push(MObject::Array(MArray { elements }))?;
+                },
+                OP_HASH => {
+                    let hash_len: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    ip += 2;
+
+                    let mut pairs = HashMap::new();
+                    for _ in 0..hash_len {
+                        let value = self.pop()?;
+                        let key = self.pop()?;
+                        let hash_key = match key.clone() {
+                            MObject::Str(x) => HashKey::Str(x),
+                            MObject::Int(x) => HashKey::Int(x),
+                            MObject::Bool(x) => HashKey::Bool(x),
+                            _ => panic!("Expected key to be Int, Str, or Bool. Got: {:?}", key),
+                        };
+
+                        let pair = HashPair { key, value };
+
+                        pairs.insert(hash_key, pair);
+                    };
+
+                    self.push(MObject::Hash(MHash { pairs }))?;
                 },
                 OP_JUMP => ip = BigEndian::read_u16(&self.instructions[ip..]).into(),
                 OP_NULL => self.push(NULL)?,
@@ -395,6 +419,33 @@ mod tests {
             TestCase { input: "[]".to_string(), expected: MObject::Array(MArray { elements: vec![] }) },
             TestCase { input: r#"["mon", "key", "go!"]"#.to_string(), expected: MObject::Array(MArray { elements: vec![s_to_o("mon"), s_to_o("key"), s_to_o("go!")] }) },
             TestCase { input: "[1 + 2, 3 - 4, 5 * 6]".to_string(), expected: MObject::Array(MArray { elements: vec![i_to_o(1 + 2), i_to_o(3 - 4), i_to_o(5 * 6)] }) },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_hash_expr() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: "{}".to_string(),
+                expected: mhash![],
+            },
+            TestCase {
+                input: "{1: 2, 3: 4, 5: 6}".to_string(),
+                expected: mhash![
+                    (i_to_o(1), i_to_o(2)),
+                    (i_to_o(3), i_to_o(4)),
+                    (i_to_o(5), i_to_o(6)),
+                ],
+            },
+            TestCase {
+                input: "{1: 2 + 3, 4: 5 * 6}".to_string(),
+                expected: mhash![
+                    (i_to_o(1), i_to_o(2 + 3)),
+                    (i_to_o(4), i_to_o(5 * 6)),
+                ],
+            },
         ];
 
         run_vm_tests(&tests)

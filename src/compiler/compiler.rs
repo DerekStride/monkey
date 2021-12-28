@@ -200,6 +200,20 @@ impl Compiler {
                         };
                         self.emit(OP_ARRAY, vec![len]);
                     },
+                    Expr::Hash(hash) => {
+                        let len = hash.pairs.len() as isize;
+                        let mut sorted = hash
+                            .pairs
+                            .into_iter()
+                            .collect::<Vec<(Expr, Expr)>>();
+                        sorted.sort_by_cached_key(|(k, _)| k.to_string());
+
+                        for (key, value) in sorted {
+                            self.compile(MNode::Expr(key))?;
+                            self.compile(MNode::Expr(value))?;
+                        };
+                        self.emit(OP_HASH, vec![len]);
+                    },
                     _ => return Err(Error::new(format!("Compilation not implemented for: {}", e))),
                 };
             },
@@ -630,6 +644,59 @@ mod tests {
                     code.make(&OP_CONSTANT, &vec![5]),
                     code.make(&OP_MUL, &vec![]),
                     code.make(&OP_ARRAY, &vec![3]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_hash_expressions() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    {}
+                "#.to_string(),
+                expected_constants: vec![],
+                expected_instructions: vec![
+                    code.make(&OP_HASH, &vec![0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    {1: 2, 3: 4, 5: 6}
+                "#.to_string(),
+                expected_constants: vec![1, 2, 3, 4, 5, 6].iter().map(|x| i_to_o(*x) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CONSTANT, &vec![3]),
+                    code.make(&OP_CONSTANT, &vec![4]),
+                    code.make(&OP_CONSTANT, &vec![5]),
+                    code.make(&OP_HASH, &vec![3]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    {1: 2 + 3, 4: 5 * 6}
+                "#.to_string(),
+                expected_constants: vec![1, 2, 3, 4, 5, 6].iter().map(|x| i_to_o(*x) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_ADD, &vec![]),
+                    code.make(&OP_CONSTANT, &vec![3]),
+                    code.make(&OP_CONSTANT, &vec![4]),
+                    code.make(&OP_CONSTANT, &vec![5]),
+                    code.make(&OP_MUL, &vec![]),
+                    code.make(&OP_HASH, &vec![2]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

@@ -1,5 +1,6 @@
 use std::{io, env};
 
+#[macro_use] mod macros;
 mod interpreter;
 mod parser;
 mod error;
