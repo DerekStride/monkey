@@ -139,6 +139,11 @@ impl Compiler {
                             _ => return Err(Error::new(format!("unknown operator: {}", prefix.operator))),
                         };
                     },
+                    Expr::Index(op) => {
+                        self.compile(MNode::Expr(*op.left))?;
+                        self.compile(MNode::Expr(*op.index))?;
+                        self.emit(OP_INDEX, vec![]);
+                    },
                     Expr::Int(int) => {
                         let literal = Integer { value: int.value };
                         self.constants.push(MObject::Int(literal));
@@ -697,6 +702,48 @@ mod tests {
                     code.make(&OP_CONSTANT, &vec![5]),
                     code.make(&OP_MUL, &vec![]),
                     code.make(&OP_HASH, &vec![2]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_index_operator() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    [1, 2, 3][1 + 1]
+                "#.to_string(),
+                expected_constants: vec![1, 2, 3, 1, 1].iter().map(|x| i_to_o(*x) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_ARRAY, &vec![3]),
+                    code.make(&OP_CONSTANT, &vec![3]),
+                    code.make(&OP_CONSTANT, &vec![4]),
+                    code.make(&OP_ADD, &vec![]),
+                    code.make(&OP_INDEX, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    {1: 2}[2 - 1]
+                "#.to_string(),
+                expected_constants: vec![1, 2, 2, 1].iter().map(|x| i_to_o(*x) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_HASH, &vec![1]),
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CONSTANT, &vec![3]),
+                    code.make(&OP_SUB, &vec![]),
+                    code.make(&OP_INDEX, &vec![]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

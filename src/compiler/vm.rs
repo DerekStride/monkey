@@ -82,6 +82,7 @@ impl Vm {
                         _ => self.push(FALSE)?,
                     };
                 },
+                OP_INDEX => self.index_op()?,
                 OP_JUMP_NOT_TRUE => {
                     if is_truthy(self.pop()?) {
                         ip += 2;
@@ -234,6 +235,40 @@ impl Vm {
         };
 
         Err(Error::new(format!("type mismatch: {} {} {}", left, op, right)))
+    }
+
+    fn index_op(&mut self) -> Result<()> {
+        let index = self.pop()?;
+        let obj = self.pop()?;
+
+        let value = match obj {
+            MObject::Array(ref x) => {
+                if let MObject::Int(ref i) = index {
+                    match x.elements.get(i.value as usize) {
+                        Some(v) => v.clone(),
+                        None => NULL,
+                    }
+                } else {
+                    return Err(Error::new(format!("OpIndex not implmented for: {}[{}]", obj, index)));
+                }
+            },
+            MObject::Hash(ref h) => {
+                let hash_key = match index {
+                    MObject::Int(x) => HashKey::Int(x),
+                    MObject::Str(x) => HashKey::Str(x),
+                    MObject::Bool(x) => HashKey::Bool(x),
+                    _ => return Err(Error::new(format!("Expected hash key to be Int, Str, or Bool. Got: {:?}", index))),
+                };
+
+                match h.pairs.get(&hash_key) {
+                    Some(pair) => pair.value.clone(),
+                    None => NULL,
+                }
+            }
+            _ => return Err(Error::new(format!("OpIndex not implmented for: {}[{}]", obj, index))),
+        };
+
+        self.push(value)
     }
 }
 
@@ -446,6 +481,24 @@ mod tests {
                     (i_to_o(4), i_to_o(5 * 6)),
                 ],
             },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_index_operation() -> Result<()> {
+        let tests = vec![
+            TestCase { input: "[1, 2, 3][1]".to_string(), expected: i_to_o(2) },
+            TestCase { input: "[1, 2, 3][0 + 2]".to_string(), expected: i_to_o(3) },
+            TestCase { input: "[[1, 1, 1]][0][0]".to_string(), expected: i_to_o(1) },
+            TestCase { input: "[][0]".to_string(), expected: NULL },
+            TestCase { input: "[1, 2, 3][99]".to_string(), expected: NULL },
+            TestCase { input: "[1][-1]".to_string(), expected: NULL },
+            TestCase { input: "{1: 1, 2: 2}[1]".to_string(), expected: i_to_o(1) },
+            TestCase { input: "{1: 1, 2: 2}[2]".to_string(), expected: i_to_o(2) },
+            TestCase { input: "{1: 1}[0]".to_string(), expected: NULL },
+            TestCase { input: "{}[0]".to_string(), expected: NULL }
         ];
 
         run_vm_tests(&tests)
