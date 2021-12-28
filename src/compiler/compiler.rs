@@ -192,6 +192,14 @@ impl Compiler {
                         };
                         self.emit(OP_GET_GLOBAL, vec![operand as isize]);
                     },
+                    Expr::Array(array) => {
+                        let len = array.elements.len() as isize;
+
+                        for elem in array.elements {
+                            self.compile(MNode::Expr(elem))?;
+                        };
+                        self.emit(OP_ARRAY, vec![len]);
+                    },
                     _ => return Err(Error::new(format!("Compilation not implemented for: {}", e))),
                 };
             },
@@ -571,6 +579,57 @@ mod tests {
                     code.make(&OP_CONSTANT, &vec![0]),
                     code.make(&OP_CONSTANT, &vec![1]),
                     code.make(&OP_ADD, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_array_expressions() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    []
+                "#.to_string(),
+                expected_constants: vec![],
+                expected_instructions: vec![
+                    code.make(&OP_ARRAY, &vec![0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    ["mon", "key", "go!"]
+                "#.to_string(),
+                expected_constants: vec!["mon", "key", "go!"].iter().map(|&x| s_to_o(x) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_ARRAY, &vec![3]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    [1 + 2, 3 - 4, 5 * 6]
+                "#.to_string(),
+                expected_constants: vec![1, 2, 3, 4, 5, 6].iter().map(|x| i_to_o(*x) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_ADD, &vec![]),
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CONSTANT, &vec![3]),
+                    code.make(&OP_SUB, &vec![]),
+                    code.make(&OP_CONSTANT, &vec![4]),
+                    code.make(&OP_CONSTANT, &vec![5]),
+                    code.make(&OP_MUL, &vec![]),
+                    code.make(&OP_ARRAY, &vec![3]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

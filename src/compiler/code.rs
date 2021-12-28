@@ -29,6 +29,7 @@ pub const OP_JUMP: u8               = 14;
 pub const OP_NULL: u8               = 15;
 pub const OP_SET_GLOBAL: u8         = 16;
 pub const OP_GET_GLOBAL: u8         = 17;
+pub const OP_ARRAY: u8              = 18;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -61,6 +62,7 @@ impl MCode {
             (OP_NULL, Definition { name: "OpNull".to_string(), operand_widths: vec![] }),
             (OP_SET_GLOBAL, Definition { name: "OpSetGlobal".to_string(), operand_widths: vec![2] }),
             (OP_GET_GLOBAL, Definition { name: "OpGetGlobal".to_string(), operand_widths: vec![2] }),
+            (OP_ARRAY, Definition { name: "OpArray".to_string(), operand_widths: vec![2] }),
         ]);
 
         Self {

@@ -104,6 +104,18 @@ impl Vm {
                     };
                     self.push(obj)?;
                 },
+                OP_ARRAY => {
+                    let array_len: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    ip += 2;
+
+                    let mut elements = vec![];
+                    for _ in 0..array_len {
+                        elements.push(self.pop()?);
+                    };
+                    elements.reverse();
+
+                    self.push(MObject::Array(MArray { elements }))?;
+                },
                 OP_JUMP => ip = BigEndian::read_u16(&self.instructions[ip..]).into(),
                 OP_NULL => self.push(NULL)?,
                 OP_POP => self.last_op_pop_element = Some(self.pop()?),
@@ -372,6 +384,17 @@ mod tests {
             TestCase { input: r#""monkey""#.to_string(), expected: s_to_o("monkey") },
             TestCase { input: r#""mon" + "key""#.to_string(), expected: s_to_o("monkey") },
             TestCase { input: r#""mon" + "key" + "banana""#.to_string(), expected: s_to_o("monkeybanana") },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_array_expr() -> Result<()> {
+        let tests = vec![
+            TestCase { input: "[]".to_string(), expected: MObject::Array(MArray { elements: vec![] }) },
+            TestCase { input: r#"["mon", "key", "go!"]"#.to_string(), expected: MObject::Array(MArray { elements: vec![s_to_o("mon"), s_to_o("key"), s_to_o("go!")] }) },
+            TestCase { input: "[1 + 2, 3 - 4, 5 * 6]".to_string(), expected: MObject::Array(MArray { elements: vec![i_to_o(1 + 2), i_to_o(3 - 4), i_to_o(5 * 6)] }) },
         ];
 
         run_vm_tests(&tests)
