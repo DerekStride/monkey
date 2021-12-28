@@ -151,6 +151,11 @@ impl Compiler {
                             self.emit(OP_FALSE, vec![]);
                         }
                     },
+                    Expr::Str(x) => {
+                        let literal = MString { value: x.value };
+                        self.constants.push(MObject::Str(literal));
+                        self.emit(OP_CONSTANT, vec![(self.constants.len() - 1) as isize]);
+                    },
                     Expr::If(if_expr) => {
                         self.compile(MNode::Expr(*if_expr.condition))?;
 
@@ -535,6 +540,37 @@ mod tests {
                     // 0006
                     code.make(&OP_GET_GLOBAL, &vec![0]),
                     // 0009
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_string_expressions() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    "monkey"
+                "#.to_string(),
+                expected_constants: vec!["monkey"].iter().map(|&x| s_to_o(x) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    "mon" + "key"
+                "#.to_string(),
+                expected_constants: vec!["mon", "key"].iter().map(|&x| s_to_o(x) ).collect(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_ADD, &vec![]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

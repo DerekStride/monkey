@@ -20,6 +20,14 @@ pub fn i_to_o(i: i128) -> MObject {
     )
 }
 
+pub fn s_to_o(s: &str) -> MObject {
+    MObject::Str(
+        MString {
+            value: s.to_string(),
+        }
+    )
+}
+
 pub fn i_to_expr(i: i128) -> Expr {
     Expr::Int(
         IntegerLiteral {

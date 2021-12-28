@@ -62,7 +62,7 @@ impl Vm {
 
                     self.push(self.constants[const_idx].clone())?;
                 },
-                OP_ADD..=OP_DIV => self.arithmetic_op(op)?,
+                OP_ADD..=OP_DIV => self.add_op(op)?,
                 OP_TRUE => self.push(TRUE)?,
                 OP_FALSE => self.push(FALSE)?,
                 OP_EQUAL..=OP_GREATER_THAN => self.comparison_op(op)?,
@@ -138,24 +138,35 @@ impl Vm {
         }
     }
 
-    fn arithmetic_op(&mut self, op: u8) -> Result<()> {
+    fn add_op(&mut self, op: u8) -> Result<()> {
         let right = self.pop()?;
-        let right_val = match right {
-            MObject::Int(x) => x.value,
-            _ => return Err(Error::new(format!("object not an integer: {}", right))),
-        };
-
         let left = self.pop()?;
-        let left_val = match left {
-            MObject::Int(x) => x.value,
-            _ => return Err(Error::new(format!("object not an integer: {}", left))),
+
+        if let MObject::Int(left_val) = left {
+            if let MObject::Int(right_val) = right {
+                return self.arithmetic_op(left_val.value, op, right_val.value);
+            }
+        } else if let MObject::Str(ref left_val) = left {
+            if let MObject::Str(ref right_val) = right {
+                match op {
+                    OP_ADD => {
+                        let value = format!("{}{}", left_val.value, right_val.value);
+                        return self.push(MObject::Str(MString { value }));
+                    },
+                    _ => {},
+                }
+            }
         };
 
+        Err(Error::new(format!("type mismatch: {} {} {}", left, op, right)))
+    }
+
+    fn arithmetic_op(&mut self, left: i128, op: u8, right: i128) -> Result<()> {
         let value = match op {
-            OP_ADD => left_val + right_val,
-            OP_SUB => left_val - right_val,
-            OP_MUL => left_val * right_val,
-            OP_DIV => left_val / right_val,
+            OP_ADD => left + right,
+            OP_SUB => left - right,
+            OP_MUL => left * right,
+            OP_DIV => left / right,
             _ => unreachable!(),
         };
         self.push(MObject::Int(Integer { value }))
@@ -350,6 +361,17 @@ mod tests {
             TestCase { input: "let one = 1; one".to_string(), expected: i_to_o(1) },
             TestCase { input: "let one = 1; let two = 2; one + two".to_string(), expected: i_to_o(3) },
             TestCase { input: "let one = 1; let two = one + one; one + two".to_string(), expected: i_to_o(3) },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_string_expr() -> Result<()> {
+        let tests = vec![
+            TestCase { input: r#""monkey""#.to_string(), expected: s_to_o("monkey") },
+            TestCase { input: r#""mon" + "key""#.to_string(), expected: s_to_o("monkey") },
+            TestCase { input: r#""mon" + "key" + "banana""#.to_string(), expected: s_to_o("monkeybanana") },
         ];
 
         run_vm_tests(&tests)
