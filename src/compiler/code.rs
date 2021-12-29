@@ -32,6 +32,9 @@ pub const OP_GET_GLOBAL: u8         = 17;
 pub const OP_ARRAY: u8              = 18;
 pub const OP_HASH: u8               = 19;
 pub const OP_INDEX: u8              = 20;
+pub const OP_CALL: u8               = 21;
+pub const OP_RETURN: u8             = 22;
+pub const OP_RETURN_VAL: u8         = 23;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -67,6 +70,9 @@ impl MCode {
             (OP_ARRAY, Definition { name: "OpArray".to_string(), operand_widths: vec![2] }),
             (OP_HASH, Definition { name: "OpHash".to_string(), operand_widths: vec![2] }),
             (OP_INDEX, Definition { name: "OpIndex".to_string(), operand_widths: vec![] }),
+            (OP_CALL, Definition { name: "OpCall".to_string(), operand_widths: vec![] }),
+            (OP_RETURN, Definition { name: "OpReturn".to_string(), operand_widths: vec![] }),
+            (OP_RETURN_VAL, Definition { name: "OpReturnVal".to_string(), operand_widths: vec![] }),
         ]);
 
         Self {

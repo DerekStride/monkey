@@ -219,6 +219,7 @@ impl Compiler {
                         };
                         self.emit(OP_HASH, vec![len]);
                     },
+                    Expr::Fn(_function) => {},
                     _ => return Err(Error::new(format!("Compilation not implemented for: {}", e))),
                 };
             },
@@ -744,6 +745,51 @@ mod tests {
                     code.make(&OP_CONSTANT, &vec![3]),
                     code.make(&OP_SUB, &vec![]),
                     code.make(&OP_INDEX, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_functions() -> Result<()> {
+        let code = MCode::new();
+        let mut constants: Vec<MObject> = vec![5, 10]
+            .iter()
+            .map(|x| i_to_o(*x) )
+            .collect();
+        let func = MObject::CompiledFn(
+            CompiledFunction {
+                instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_ADD, &vec![]),
+                    code.make(&OP_RETURN_VAL, &vec![]),
+                ].into_iter().flatten().collect(),
+            }
+        );
+        constants.push(func);
+
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    fn() { return 5 + 10 }
+                "#.to_string(),
+                expected_constants: constants.clone(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    fn() { 5 + 10 }
+                "#.to_string(),
+                expected_constants: constants,
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![2]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

@@ -4,6 +4,7 @@ use crate::{
         builtin::Builtin,
         environment::Environment,
     },
+    compiler::code::{Instructions, MCode},
 };
 use std::{fmt, collections::HashMap};
 
@@ -147,6 +148,17 @@ impl fmt::Display for Function {
     }
 }
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct CompiledFunction {
+    pub instructions: Instructions,
+}
+
+impl fmt::Display for CompiledFunction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CompiledFunction[\n{}]", MCode::new().format(&self.instructions))
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Quote {
     pub node: MNode,
@@ -190,6 +202,7 @@ pub enum MObject {
     Return(ReturnValue),
     Err(MError),
     Fn(Function),
+    CompiledFn(CompiledFunction),
     Builtin(Builtin),
     Quote(Quote),
     Macro(Macro),
@@ -207,6 +220,7 @@ impl fmt::Display for MObject {
             MObject::Return(x) => write!(f, "{}", x),
             MObject::Err(x) => write!(f, "{}", x),
             MObject::Fn(x) => write!(f, "{}", x),
+            MObject::CompiledFn(x) => write!(f, "{}", x),
             MObject::Builtin(x) => write!(f, "{}", x),
             MObject::Quote(x) => write!(f, "{}", x),
             MObject::Macro(x) => write!(f, "{}", x),
