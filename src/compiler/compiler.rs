@@ -286,12 +286,17 @@ impl Compiler {
                         self.compile(MNode::Stmt(Stmt::Block(function.body)))?;
 
                         if self.last_instruction_is(OP_POP) { self.replace_last_pop_with_return(); };
+                        if !self.last_instruction_is(OP_RETURN_VAL) { self.emit(OP_RETURN, vec![]); };
 
                         let scope = self.leave_scope();
                         let compiled_fn = CompiledFunction { instructions: scope.instructions };
 
                         self.constants.push(MObject::CompiledFn(compiled_fn));
                         self.emit(OP_CONSTANT, vec![(self.constants.len() - 1) as isize]);
+                    },
+                    Expr::Call(fn_call) => {
+                        self.compile(MNode::Expr(*fn_call.function))?;
+                        self.emit(OP_CALL, vec![]);
                     },
                     _ => return Err(Error::new(format!("Compilation not implemented for expression: {}", e))),
                 };
@@ -922,6 +927,35 @@ mod tests {
     }
 
     #[test]
+    fn test_functions_without_return_values() -> Result<()> {
+        let code = MCode::new();
+        let func1 = MObject::CompiledFn(
+            CompiledFunction {
+                instructions: vec![
+                    code.make(&OP_RETURN, &vec![]),
+                ].into_iter().flatten().collect(),
+            }
+        );
+
+        let constants = vec![func1];
+
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    fn() { }
+                "#.to_string(),
+                expected_constants: constants,
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
     fn test_compiler_scopes() {
         let mut compiler = Compiler::new();
         assert_eq!(1, compiler.scopes.len());
@@ -946,5 +980,59 @@ mod tests {
 
         assert_eq!(OP_ADD, last.opcode);
         assert_eq!(OP_MUL, prev.opcode);
+    }
+
+    #[test]
+    fn test_function_calls() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    fn() { 24 }();
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(24),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            instructions: vec![
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CALL, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    let noArg = fn() { 24 };
+                    noArg();
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(24),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            instructions: vec![
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    code.make(&OP_GET_GLOBAL, &vec![0]),
+                    code.make(&OP_CALL, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
     }
 }
