@@ -112,7 +112,7 @@ impl MCode {
         instruction
     }
 
-    pub fn format(&self, ins: &Instructions) -> String {
+    pub fn format(&self, ins: &[u8]) -> String {
         let mut buf = String::new();
 
         let mut i = 0;
