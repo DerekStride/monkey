@@ -155,7 +155,7 @@ pub struct CompiledFunction {
 
 impl fmt::Display for CompiledFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CompiledFunction[\n{}]", MCode::new().format(&self.instructions))
+        write!(f, "CompiledFunction [\n{}]", MCode::new().format(&self.instructions))
     }
 }
 
