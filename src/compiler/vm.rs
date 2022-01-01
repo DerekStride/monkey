@@ -12,12 +12,28 @@ use byteorder::{ByteOrder, BigEndian};
 const STACK_SIZE: usize = 2048;
 #[cfg(test)]
 const GLOBALS_SIZE: usize = 2usize.pow(16);
+const MAX_FRAMES: usize = 1024;
+
+
+struct Frame {
+    instructions: Instructions,
+    ip: usize,
+}
+
+impl Frame {
+    fn new(instructions: Instructions) -> Self {
+        Self {
+            instructions,
+            ip: 0,
+        }
+    }
+}
 
 pub struct Vm {
-    instructions: Instructions,
     constants: Vec<MObject>,
     globals: Vec<MObject>,
 
+    frames: Vec<Frame>,
     stack: Vec<MObject>,
     last_op_pop_element: Option<MObject>,
 }
@@ -25,22 +41,26 @@ pub struct Vm {
 impl Vm {
     #[cfg(test)]
     pub fn new(bytecode: Bytecode) -> Self {
+        let mut frames = Vec::with_capacity(MAX_FRAMES);
+        frames.push(Frame::new(bytecode.instructions));
         Self {
-            instructions: bytecode.instructions,
             constants: bytecode.contstants,
             globals: Vec::with_capacity(GLOBALS_SIZE),
 
+            frames,
             stack: Vec::with_capacity(STACK_SIZE),
             last_op_pop_element: None,
         }
     }
 
     pub fn with_state(bytecode: Bytecode, globals: Vec<MObject>) -> Self {
+        let mut frames = Vec::with_capacity(MAX_FRAMES);
+        frames.push(Frame::new(bytecode.instructions));
         Self {
-            instructions: bytecode.instructions,
             constants: bytecode.contstants,
             globals,
 
+            frames,
             stack: Vec::with_capacity(STACK_SIZE),
             last_op_pop_element: None,
         }
@@ -51,15 +71,16 @@ impl Vm {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let mut ip = 0;
-
-        while ip < self.instructions.len() {
-            let op = *self.instructions.get(ip).unwrap();
+        while self.current_frame().ip < self.current_frame().instructions.len() {
+            let frame = self.pop_frame();
+            let mut ip = frame.ip;
+            let mut instructions = frame.instructions;
+            let op = instructions[ip];
             ip += 1;
 
             match op {
                 OP_CONSTANT => {
-                    let const_idx: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    let const_idx: usize = BigEndian::read_u16(&instructions[ip..]).into();
                     ip += 2;
 
                     self.push(self.constants[const_idx].clone())?;
@@ -87,18 +108,18 @@ impl Vm {
                     if is_truthy(self.pop()?) {
                         ip += 2;
                     } else {
-                        ip = BigEndian::read_u16(&self.instructions[ip..]).into();
+                        ip = BigEndian::read_u16(&instructions[ip..]).into();
                     };
                 },
                 OP_SET_GLOBAL => {
-                    let globals_idx: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    let globals_idx: usize = BigEndian::read_u16(&instructions[ip..]).into();
                     ip += 2;
 
                     let obj = self.pop()?;
                     self.globals.insert(globals_idx, obj);
                 },
                 OP_GET_GLOBAL => {
-                    let globals_idx: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    let globals_idx: usize = BigEndian::read_u16(&instructions[ip..]).into();
                     ip += 2;
 
                     let obj = match self.globals.get(globals_idx) {
@@ -108,7 +129,7 @@ impl Vm {
                     self.push(obj)?;
                 },
                 OP_ARRAY => {
-                    let array_len: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    let array_len: usize = BigEndian::read_u16(&instructions[ip..]).into();
                     ip += 2;
 
                     let mut elements = vec![];
@@ -120,7 +141,7 @@ impl Vm {
                     self.push(MObject::Array(MArray { elements }))?;
                 },
                 OP_HASH => {
-                    let hash_len: usize = BigEndian::read_u16(&self.instructions[ip..]).into();
+                    let hash_len: usize = BigEndian::read_u16(&instructions[ip..]).into();
                     ip += 2;
 
                     let mut pairs = HashMap::new();
@@ -141,7 +162,32 @@ impl Vm {
 
                     self.push(MObject::Hash(MHash { pairs }))?;
                 },
-                OP_JUMP => ip = BigEndian::read_u16(&self.instructions[ip..]).into(),
+                OP_CALL => {
+                    let obj = self.pop()?;
+                    let compiled_fn = match obj {
+                        MObject::CompiledFn(x) => x,
+                        _ => return Err(Error::new(format!("Expected compiled funtion, got: {}", obj))),
+                    };
+
+                    self.push_frame(Frame { ip, instructions });
+
+                    ip = 0;
+                    instructions = compiled_fn.instructions;
+                },
+                OP_RETURN_VAL => {
+                    let retval = self.pop()?;
+                    let frame = self.pop_frame();
+                    ip = frame.ip;
+                    instructions = frame.instructions;
+                    self.push(retval)?;
+                },
+                OP_RETURN => {
+                    let frame = self.pop_frame();
+                    ip = frame.ip;
+                    instructions = frame.instructions;
+                    self.push(NULL)?;
+                },
+                OP_JUMP => ip = BigEndian::read_u16(&instructions[ip..]).into(),
                 OP_NULL => self.push(NULL)?,
                 OP_POP => self.last_op_pop_element = Some(self.pop()?),
                 _ => {
@@ -150,6 +196,8 @@ impl Vm {
                     return Err(Error::new(format!("Opcode not implemented: {}", def.name)))
                 },
             };
+
+            self.push_frame(Frame { ip, instructions });
         }
 
         Ok(())
@@ -173,6 +221,18 @@ impl Vm {
             Some(x) => Ok(x),
             None => Err(Error::new("Stack is empty".to_string())),
         }
+    }
+
+    fn current_frame(&self) -> &Frame {
+        self.frames.last().unwrap()
+    }
+
+    fn push_frame(&mut self, frame: Frame) {
+        self.frames.push(frame)
+    }
+
+    fn pop_frame(&mut self) -> Frame {
+        self.frames.pop().unwrap()
     }
 
     fn add_op(&mut self, op: u8) -> Result<()> {
@@ -347,7 +407,10 @@ mod tests {
                 Err(e) => panic!("Error:\n{}\n\n{}\n", e, compiler),
             };
 
-            let stack_top = vm.stack_top().unwrap();
+            let stack_top = match vm.stack_top() {
+                Some(x) => x,
+                None => panic!("No value on stack:\n{}\n", compiler),
+            };
 
             assert_eq!(&tt.expected, stack_top, "\n\ninput:\n{}\n\n{}\n", tt.input, compiler);
         };
@@ -499,6 +562,76 @@ mod tests {
             TestCase { input: "{1: 1, 2: 2}[2]".to_string(), expected: i_to_o(2) },
             TestCase { input: "{1: 1}[0]".to_string(), expected: NULL },
             TestCase { input: "{}[0]".to_string(), expected: NULL }
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_calling_funtions_without_arguments() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let fivePlusTen = fn() { 5 + 10; };
+                    fivePlusTen();
+                "#.to_string(),
+                expected: i_to_o(15)
+            },
+            TestCase {
+                input: r#"
+                    let one = fn() { 1; };
+                    let two = fn() { 2; };
+                    one() + two()
+                "#.to_string(),
+                expected: i_to_o(3)
+            },
+            TestCase {
+                input: r#"
+                    let a = fn() { 1 };
+                    let b = fn() { a() + 1 };
+                    let c = fn() { b() + 1 };
+                    c();
+                "#.to_string(),
+                expected: i_to_o(3)
+            },
+            TestCase {
+                input: r#"
+                    let earlyExit = fn() { return 99; 100; };
+                    earlyExit();
+                "#.to_string(),
+                expected: i_to_o(99)
+            },
+            TestCase {
+                input: r#"
+                    let earlyExit = fn() { return 99; return 100; };
+                    earlyExit();
+                "#.to_string(),
+                expected: i_to_o(99)
+            },
+            TestCase {
+                input: r#"
+                    let noReturn = fn() { };
+                    noReturn();
+                "#.to_string(),
+                expected: NULL
+            },
+            TestCase {
+                input: r#"
+                    let noReturn = fn() { };
+                    let noReturnTwo = fn() { noReturn(); };
+                    noReturnTwo();
+                    noReturn();
+                "#.to_string(),
+                expected: NULL
+            },
+            TestCase {
+                input: r#"
+                    let returnsOne = fn() { 1; };
+                    let returnsOneReturner = fn() { returnsOne; };
+                    returnsOneReturner()();
+                "#.to_string(),
+                expected: i_to_o(1)
+            },
         ];
 
         run_vm_tests(&tests)
