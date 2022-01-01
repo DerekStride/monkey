@@ -36,13 +36,71 @@ impl fmt::Display for EmittedInstruction {
     }
 }
 
-pub struct Compiler  {
+struct CompilationScope {
     instructions: Instructions,
-    constants: Vec<MObject>,
-    symbols: SymbolTable,
 
     last_emitted_instruction: Option<EmittedInstruction>,
     prev_emitted_instruction: Option<EmittedInstruction>,
+}
+
+impl CompilationScope {
+    fn new() -> Self {
+        Self {
+            instructions: Vec::new(),
+
+            last_emitted_instruction: None,
+            prev_emitted_instruction: None,
+        }
+    }
+
+    fn emit(&mut self, code: &MCode, opcode: Opcode, operands: Operand) {
+        let mut ins = code.make(&opcode, &operands);
+        self.set_last_instruction(opcode, self.instructions.len());
+        self.instructions.append(&mut ins);
+    }
+
+    fn set_last_instruction(&mut self, opcode: Opcode, position: usize) {
+        std::mem::swap(&mut self.prev_emitted_instruction, &mut self.last_emitted_instruction);
+        self.last_emitted_instruction = Some(EmittedInstruction { opcode, position });
+    }
+
+    fn last_instruction_is(&self, opcode: Opcode) -> bool {
+        if let Some(x) = &self.last_emitted_instruction { return opcode == x.opcode; };
+        false
+    }
+
+    fn remove_last_pop(&mut self) {
+        self.instructions.pop();
+        std::mem::swap(&mut self.last_emitted_instruction, &mut self.prev_emitted_instruction);
+        self.prev_emitted_instruction = None;
+    }
+
+    fn replace_last_pop_with_return(&mut self, code: &MCode) {
+        let emitted = self.last_emitted_instruction.as_mut().unwrap();
+        emitted.opcode = OP_RETURN_VAL;
+
+        let pos = emitted.position;
+        let ins = code.make(&OP_RETURN_VAL, &vec![]);
+
+        self.replace_instruction(pos, &ins);
+    }
+
+    fn replace_instruction(&mut self, pos: usize, ins: &[u8]) {
+        for (i, &byte) in ins.iter().enumerate() {
+            self.instructions[pos + i] = byte;
+        };
+    }
+
+    fn change_operand(&mut self, code: &MCode, pos: usize, operand: &Operand) {
+        let ins = code.make(&self.instructions[pos], operand);
+        self.replace_instruction(pos, &ins);
+    }
+}
+
+pub struct Compiler  {
+    constants: Vec<MObject>,
+    symbols: SymbolTable,
+    scopes: Vec<CompilationScope>,
 
     code: MCode,
 }
@@ -51,22 +109,18 @@ impl Compiler {
     #[cfg(test)]
     pub fn new() -> Self {
         Self {
-            instructions: Vec::new(),
             constants: Vec::new(),
             symbols: SymbolTable::new(),
-            last_emitted_instruction: None,
-            prev_emitted_instruction: None,
+            scopes: vec![CompilationScope::new()],
             code: MCode::new(),
         }
     }
 
     pub fn with_state(symbols: SymbolTable, constants: Vec<MObject>) -> Self {
         Self {
-            instructions: Vec::new(),
             constants,
             symbols,
-            last_emitted_instruction: None,
-            prev_emitted_instruction: None,
+            scopes: vec![CompilationScope::new()],
             code: MCode::new(),
         }
     }
@@ -76,8 +130,13 @@ impl Compiler {
     }
 
     pub fn bytecode(&self) -> Bytecode {
+        let instructions = self
+            .current_scope()
+            .instructions
+            .clone();
+
         Bytecode {
-            instructions: self.instructions.clone(),
+            instructions,
             contstants: self.constants.clone(),
         }
     }
@@ -105,7 +164,10 @@ impl Compiler {
                         let operand = self.symbols.define(let_stmt.name.value);
                         self.emit(OP_SET_GLOBAL, vec![operand as isize]);
                     },
-                    _ => return Err(Error::new(format!("Compilation not implemented for: {}", s))),
+                    Stmt::Return(ret_stmt) => {
+                        self.compile(MNode::Expr(ret_stmt.retval))?;
+                        self.emit(OP_RETURN_VAL, vec![]);
+                    },
                 };
             },
             MNode::Expr(e) => {
@@ -165,29 +227,29 @@ impl Compiler {
                         self.compile(MNode::Expr(*if_expr.condition))?;
 
                         // Emit a JumpNotTrue Opcode with a placeholder offset to rewrite later.
-                        let jump_not_true_loc = self.instructions.len();
+                        let jump_not_true_loc = self.current_instructions().len();
                         self.emit(OP_JUMP_NOT_TRUE, vec![0]);
 
                         self.compile(MNode::Stmt(Stmt::Block(if_expr.consequence)))?;
-                        if self.last_instruction_is_pop() { self.remove_last_pop() };
+                        if self.last_instruction_is(OP_POP) { self.remove_last_pop() };
 
                         // Emit a Jump Opcode with a placeholder offset to rewrite later.
-                        let jump_loc = self.instructions.len();
+                        let jump_loc = self.current_instructions().len();
                         self.emit(OP_JUMP, vec![0]);
 
                         // Rewrite the JumpNotTrue offset placeholder.
-                        let after_conseqence_loc = self.instructions.len();
+                        let after_conseqence_loc = self.current_instructions().len();
                         self.change_operand(jump_not_true_loc, &vec![after_conseqence_loc as isize]);
 
                         if let Some(alternative) = if_expr.alternative {
                             self.compile(MNode::Stmt(Stmt::Block(alternative)))?;
-                            if self.last_instruction_is_pop() { self.remove_last_pop() };
+                            if self.last_instruction_is(OP_POP) { self.remove_last_pop() };
                         } else {
                             self.emit(OP_NULL, vec![]);
                         };
 
                         // Rewrite the Jump offset placeholder.
-                        let after_alternative_loc = self.instructions.len();
+                        let after_alternative_loc = self.current_instructions().len();
                         self.change_operand(jump_loc, &vec![after_alternative_loc as isize]);
                     },
                     Expr::Ident(ident) => {
@@ -219,7 +281,24 @@ impl Compiler {
                         };
                         self.emit(OP_HASH, vec![len]);
                     },
-                    _ => return Err(Error::new(format!("Compilation not implemented for: {}", e))),
+                    Expr::Fn(function) => {
+                        self.enter_scope(CompilationScope::new());
+                        self.compile(MNode::Stmt(Stmt::Block(function.body)))?;
+
+                        if self.last_instruction_is(OP_POP) { self.replace_last_pop_with_return(); };
+                        if !self.last_instruction_is(OP_RETURN_VAL) { self.emit(OP_RETURN, vec![]); };
+
+                        let scope = self.leave_scope();
+                        let compiled_fn = CompiledFunction { instructions: scope.instructions };
+
+                        self.constants.push(MObject::CompiledFn(compiled_fn));
+                        self.emit(OP_CONSTANT, vec![(self.constants.len() - 1) as isize]);
+                    },
+                    Expr::Call(fn_call) => {
+                        self.compile(MNode::Expr(*fn_call.function))?;
+                        self.emit(OP_CALL, vec![]);
+                    },
+                    _ => return Err(Error::new(format!("Compilation not implemented for expression: {}", e))),
                 };
             },
         };
@@ -228,45 +307,57 @@ impl Compiler {
     }
 
     fn emit(&mut self, op: Opcode, operands: Operand) {
-        let mut ins = self.code.make(&op, &operands);
-        self.set_last_instruction(op, self.instructions.len());
-        self.instructions.append(&mut ins);
+        let mut scope = self.leave_scope();
+        scope.emit(&self.code, op, operands);
+        self.enter_scope(scope);
     }
 
-    fn set_last_instruction(&mut self, opcode: Opcode, position: usize) {
-        std::mem::swap(&mut self.prev_emitted_instruction, &mut self.last_emitted_instruction);
-        self.last_emitted_instruction = Some(EmittedInstruction { opcode, position });
-    }
-
-    fn last_instruction_is_pop(&self) -> bool {
-        if let Some(x) = &self.last_emitted_instruction { return OP_POP == x.opcode; };
-        false
+    fn last_instruction_is(&self, opcode: Opcode) -> bool {
+        self.scopes.last().unwrap().last_instruction_is(opcode)
     }
 
     fn remove_last_pop(&mut self) {
-        self.instructions.pop();
-        std::mem::swap(&mut self.last_emitted_instruction, &mut self.prev_emitted_instruction);
-        self.prev_emitted_instruction = None;
+        let mut scope = self.leave_scope();
+        scope.remove_last_pop();
+        self.enter_scope(scope);
     }
 
-    fn replace_instruction(&mut self, pos: usize, ins: &[u8]) {
-        for (i, &byte) in ins.iter().enumerate() {
-            self.instructions[pos + i] = byte;
-        };
+    fn replace_last_pop_with_return(&mut self) {
+        let mut scope = self.leave_scope();
+        scope.replace_last_pop_with_return(&self.code);
+        self.enter_scope(scope);
     }
 
     fn change_operand(&mut self, pos: usize, operand: &Operand) {
-        let ins = self.code.make(&self.instructions[pos], operand);
-        self.replace_instruction(pos, &ins);
+        let mut scope = self.leave_scope();
+        scope.change_operand(&self.code, pos, operand);
+        self.enter_scope(scope);
+    }
+
+    fn enter_scope(&mut self, scope: CompilationScope) {
+        self.scopes.push(scope)
+    }
+
+    fn leave_scope(&mut self) -> CompilationScope {
+        self.scopes.pop().unwrap()
+    }
+
+    fn current_scope(&self) -> &CompilationScope {
+        self.scopes.last().unwrap()
+    }
+
+    fn current_instructions(&self) -> &[u8] {
+        &self.current_scope().instructions
     }
 }
 
 impl fmt::Display for Compiler {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let scope = self.current_scope();
         write!(
             f,
             "Compiler {{\n\tinstructions:\n\t\t{}\n\tconstants:\n\t\t{}\n\tprev_instruction:\n\t\t{}\n\tlast_instruction:\n\t\t{}\n}}",
-            self.code.format(&self.instructions)
+            self.code.format(self.current_instructions())
                 .lines()
                 .map(|l| l.to_string())
                 .collect::<Vec<String>>()
@@ -277,8 +368,8 @@ impl fmt::Display for Compiler {
                 .map(|(i, o)| format!("{}: {}", i, o))
                 .collect::<Vec<String>>()
                 .join("\n\t\t"),
-            if let Some(x) = &self.prev_emitted_instruction { format!("{}", x) } else { "None".to_string() },
-            if let Some(x) = &self.last_emitted_instruction { format!("{}", x) } else { "None".to_string() },
+            if let Some(x) = &scope.prev_emitted_instruction { format!("{}", x) } else { "None".to_string() },
+            if let Some(x) = &scope.last_emitted_instruction { format!("{}", x) } else { "None".to_string() },
         )
     }
 }
@@ -299,11 +390,25 @@ mod tests {
             .collect::<Instructions>();
 
         let mcode = MCode::new();
-        assert_eq!(expected, actual, "\n\nwant:\n{}\ngot:\n{}\n", mcode.format(&expected), mcode.format(&actual));
+        assert_eq!(expected, actual, "\n\nInstructions:\nwant:\n{}\ngot:\n{}\n", mcode.format(&expected), mcode.format(&actual));
     }
 
     fn test_constants(expected: Vec<MObject>, actual: Vec<MObject>) {
-        assert_eq!(expected, actual);
+        assert_eq!(
+            expected,
+            actual,
+            "\n\nConstants:\nwant:\n{}\ngot:\n{}\n",
+            expected
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<String>>()
+                .join("\n"),
+            actual
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<String>>()
+                .join("\n"),
+        );
     }
 
     struct TestCase {
@@ -744,6 +849,185 @@ mod tests {
                     code.make(&OP_CONSTANT, &vec![3]),
                     code.make(&OP_SUB, &vec![]),
                     code.make(&OP_INDEX, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_functions() -> Result<()> {
+        let code = MCode::new();
+        let constants: Vec<MObject> = vec![5, 10]
+            .iter()
+            .map(|x| i_to_o(*x) )
+            .collect();
+        let func1 = MObject::CompiledFn(
+            CompiledFunction {
+                instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_ADD, &vec![]),
+                    code.make(&OP_RETURN_VAL, &vec![]),
+                ].into_iter().flatten().collect(),
+            }
+        );
+        let func2 = MObject::CompiledFn(
+            CompiledFunction {
+                instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_POP, &vec![]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_RETURN_VAL, &vec![]),
+                ].into_iter().flatten().collect(),
+            }
+        );
+        let mut constants1 = constants.clone();
+        let mut constants2 = constants.clone();
+
+        constants1.push(func1);
+        constants2.push(func2);
+
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    fn() { return 5 + 10 }
+                "#.to_string(),
+                expected_constants: constants1.clone(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    fn() { 5 + 10 }
+                "#.to_string(),
+                expected_constants: constants1.clone(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    fn() { 5; 10 }
+                "#.to_string(),
+                expected_constants: constants2.clone(),
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_functions_without_return_values() -> Result<()> {
+        let code = MCode::new();
+        let func1 = MObject::CompiledFn(
+            CompiledFunction {
+                instructions: vec![
+                    code.make(&OP_RETURN, &vec![]),
+                ].into_iter().flatten().collect(),
+            }
+        );
+
+        let constants = vec![func1];
+
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    fn() { }
+                "#.to_string(),
+                expected_constants: constants,
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_compiler_scopes() {
+        let mut compiler = Compiler::new();
+        assert_eq!(1, compiler.scopes.len());
+
+        compiler.emit(OP_MUL, vec![]);
+
+        compiler.enter_scope(CompilationScope::new());
+        assert_eq!(2, compiler.scopes.len());
+
+        compiler.emit(OP_SUB, vec![]);
+
+        let last = compiler.scopes.last().unwrap().last_emitted_instruction.as_ref().unwrap();
+
+        assert_eq!(OP_SUB, last.opcode);
+
+        compiler.leave_scope();
+        assert_eq!(1, compiler.scopes.len());
+
+        compiler.emit(OP_ADD, vec![]);
+        let last = compiler.scopes.last().unwrap().last_emitted_instruction.as_ref().unwrap();
+        let prev = compiler.scopes.last().unwrap().prev_emitted_instruction.as_ref().unwrap();
+
+        assert_eq!(OP_ADD, last.opcode);
+        assert_eq!(OP_MUL, prev.opcode);
+    }
+
+    #[test]
+    fn test_function_calls() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    fn() { 24 }();
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(24),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            instructions: vec![
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CALL, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    let noArg = fn() { 24 };
+                    noArg();
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(24),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            instructions: vec![
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    code.make(&OP_GET_GLOBAL, &vec![0]),
+                    code.make(&OP_CALL, &vec![]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

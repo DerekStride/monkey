@@ -472,7 +472,7 @@ impl fmt::Display for FnLiteral {
             "{}",
             self.params.iter().map(|p| format!("{}", p)).collect::<Vec<String>>().join(", ")
         )?;
-        write!(f, ") {}", self.body)
+        write!(f, ") {{ {} }}", self.body)
     }
 }
 
