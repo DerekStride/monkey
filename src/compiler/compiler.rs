@@ -4,7 +4,7 @@ use crate::{
     interpreter::object::*,
     compiler::{
         code::*,
-        symbol_table::SymbolTable,
+        symbol_table::{SymbolTable, Scope},
     },
     ast::*,
     error::{Result, Error},
@@ -161,8 +161,15 @@ impl Compiler {
                     },
                     Stmt::Let(let_stmt) => {
                         self.compile(MNode::Expr(let_stmt.value))?;
-                        let operand = self.symbols.define(let_stmt.name.value);
-                        self.emit(OP_SET_GLOBAL, vec![operand as isize]);
+                        let symbol = self.symbols.define(let_stmt.name.value);
+                        let index = symbol.index;
+
+                        let opcode = if symbol.scope == Scope::Global {
+                            OP_SET_GLOBAL
+                        } else {
+                            OP_SET_LOCAL
+                        };
+                        self.emit(opcode, vec![index as isize]);
                     },
                     Stmt::Return(ret_stmt) => {
                         self.compile(MNode::Expr(ret_stmt.retval))?;
@@ -253,11 +260,18 @@ impl Compiler {
                         self.change_operand(jump_loc, &vec![after_alternative_loc as isize]);
                     },
                     Expr::Ident(ident) => {
-                        let operand = match self.symbols.resolve(&ident.value) {
-                            Some(x) => x.index,
+                        let symbol = match self.symbols.resolve(&ident.value) {
+                            Some(x) => x,
                             None => return Err(Error::new(format!("Identifier not found: {}", ident))),
                         };
-                        self.emit(OP_GET_GLOBAL, vec![operand as isize]);
+                        let index = symbol.index;
+
+                        let opcode = if symbol.scope == Scope::Global {
+                            OP_GET_GLOBAL
+                        } else {
+                            OP_GET_LOCAL
+                        };
+                        self.emit(opcode, vec![index as isize]);
                     },
                     Expr::Array(array) => {
                         let len = array.elements.len() as isize;
@@ -288,8 +302,9 @@ impl Compiler {
                         if self.last_instruction_is(OP_POP) { self.replace_last_pop_with_return(); };
                         if !self.last_instruction_is(OP_RETURN_VAL) { self.emit(OP_RETURN, vec![]); };
 
+                        let num_locals = self.symbols.len();
                         let scope = self.leave_scope();
-                        let compiled_fn = CompiledFunction { instructions: scope.instructions };
+                        let compiled_fn = CompiledFunction { num_locals, instructions: scope.instructions };
 
                         self.constants.push(MObject::CompiledFn(compiled_fn));
                         self.emit(OP_CONSTANT, vec![(self.constants.len() - 1) as isize]);
@@ -307,9 +322,9 @@ impl Compiler {
     }
 
     fn emit(&mut self, op: Opcode, operands: Operand) {
-        let mut scope = self.leave_scope();
-        scope.emit(&self.code, op, operands);
-        self.enter_scope(scope);
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.emit(&self.code, op, operands);
+        };
     }
 
     fn last_instruction_is(&self, opcode: Opcode) -> bool {
@@ -317,28 +332,30 @@ impl Compiler {
     }
 
     fn remove_last_pop(&mut self) {
-        let mut scope = self.leave_scope();
-        scope.remove_last_pop();
-        self.enter_scope(scope);
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.remove_last_pop();
+        };
     }
 
     fn replace_last_pop_with_return(&mut self) {
-        let mut scope = self.leave_scope();
-        scope.replace_last_pop_with_return(&self.code);
-        self.enter_scope(scope);
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.replace_last_pop_with_return(&self.code);
+        };
     }
 
     fn change_operand(&mut self, pos: usize, operand: &Operand) {
-        let mut scope = self.leave_scope();
-        scope.change_operand(&self.code, pos, operand);
-        self.enter_scope(scope);
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.change_operand(&self.code, pos, operand);
+        };
     }
 
     fn enter_scope(&mut self, scope: CompilationScope) {
-        self.scopes.push(scope)
+        self.symbols = SymbolTable::enclose(self.symbols.clone());
+        self.scopes.push(scope);
     }
 
     fn leave_scope(&mut self) -> CompilationScope {
+        self.symbols = self.symbols.outer().unwrap();
         self.scopes.pop().unwrap()
     }
 
@@ -866,6 +883,7 @@ mod tests {
             .collect();
         let func1 = MObject::CompiledFn(
             CompiledFunction {
+                num_locals: 0,
                 instructions: vec![
                     code.make(&OP_CONSTANT, &vec![0]),
                     code.make(&OP_CONSTANT, &vec![1]),
@@ -876,6 +894,7 @@ mod tests {
         );
         let func2 = MObject::CompiledFn(
             CompiledFunction {
+                num_locals: 0,
                 instructions: vec![
                     code.make(&OP_CONSTANT, &vec![0]),
                     code.make(&OP_POP, &vec![]),
@@ -931,6 +950,7 @@ mod tests {
         let code = MCode::new();
         let func1 = MObject::CompiledFn(
             CompiledFunction {
+                num_locals: 0,
                 instructions: vec![
                     code.make(&OP_RETURN, &vec![]),
                 ].into_iter().flatten().collect(),
@@ -960,6 +980,7 @@ mod tests {
         let mut compiler = Compiler::new();
         assert_eq!(1, compiler.scopes.len());
 
+        let global_symbol_table = compiler.symbol_table();
         compiler.emit(OP_MUL, vec![]);
 
         compiler.enter_scope(CompilationScope::new());
@@ -970,9 +991,11 @@ mod tests {
         let last = compiler.scopes.last().unwrap().last_emitted_instruction.as_ref().unwrap();
 
         assert_eq!(OP_SUB, last.opcode);
+        assert_ne!(compiler.symbol_table(), global_symbol_table);
 
         compiler.leave_scope();
         assert_eq!(1, compiler.scopes.len());
+        assert_eq!(compiler.symbol_table(), global_symbol_table);
 
         compiler.emit(OP_ADD, vec![]);
         let last = compiler.scopes.last().unwrap().last_emitted_instruction.as_ref().unwrap();
@@ -994,6 +1017,7 @@ mod tests {
                     i_to_o(24),
                     MObject::CompiledFn(
                         CompiledFunction {
+                            num_locals: 0,
                             instructions: vec![
                                 code.make(&OP_CONSTANT, &vec![0]),
                                 code.make(&OP_RETURN_VAL, &vec![]),
@@ -1016,6 +1040,7 @@ mod tests {
                     i_to_o(24),
                     MObject::CompiledFn(
                         CompiledFunction {
+                            num_locals: 0,
                             instructions: vec![
                                 code.make(&OP_CONSTANT, &vec![0]),
                                 code.make(&OP_RETURN_VAL, &vec![]),
@@ -1028,6 +1053,97 @@ mod tests {
                     code.make(&OP_SET_GLOBAL, &vec![0]),
                     code.make(&OP_GET_GLOBAL, &vec![0]),
                     code.make(&OP_CALL, &vec![]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_let_statement_scopes() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let num = 55;
+                    fn() { num }
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(55),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 0,
+                            instructions: vec![
+                                code.make(&OP_GET_GLOBAL, &vec![0]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    fn() {
+                        let num = 55;
+                        num
+                    }
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(55),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            instructions: vec![
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_SET_LOCAL, &vec![0]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    fn() {
+                        let a = 55;
+                        let b = 77;
+                        a + b
+                    }
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(55),
+                    i_to_o(77),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 2,
+                            instructions: vec![
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_SET_LOCAL, &vec![0]),
+                                code.make(&OP_CONSTANT, &vec![1]),
+                                code.make(&OP_SET_LOCAL, &vec![1]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_GET_LOCAL, &vec![1]),
+                                code.make(&OP_ADD, &vec![]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![2]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

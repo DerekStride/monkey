@@ -151,6 +151,7 @@ impl fmt::Display for Function {
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct CompiledFunction {
     pub instructions: Instructions,
+    pub num_locals: u8,
 }
 
 impl fmt::Display for CompiledFunction {

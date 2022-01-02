@@ -35,6 +35,8 @@ pub const OP_INDEX: u8              = 20;
 pub const OP_CALL: u8               = 21;
 pub const OP_RETURN: u8             = 22;
 pub const OP_RETURN_VAL: u8         = 23;
+pub const OP_SET_LOCAL: u8          = 24;
+pub const OP_GET_LOCAL: u8          = 25;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -73,6 +75,8 @@ impl MCode {
             (OP_CALL, Definition { name: "OpCall".to_string(), operand_widths: vec![] }),
             (OP_RETURN, Definition { name: "OpReturn".to_string(), operand_widths: vec![] }),
             (OP_RETURN_VAL, Definition { name: "OpReturnVal".to_string(), operand_widths: vec![] }),
+            (OP_SET_LOCAL, Definition { name: "OpSetLocal".to_string(), operand_widths: vec![1] }),
+            (OP_GET_LOCAL, Definition { name: "OpGetLocal".to_string(), operand_widths: vec![1] }),
         ]);
 
         Self {
@@ -98,6 +102,7 @@ impl MCode {
 
         for (i, o) in operands.iter().enumerate() {
             match def.operand_widths.get(i) {
+                Some(1) => instruction.push(*o as u8),
                 Some(2) => {
                     match instruction.write_u16::<BigEndian>(*o as u16) {
                         Ok(_) => {},
@@ -169,6 +174,7 @@ impl MCode {
 
         for (i, width) in def.operand_widths.iter().enumerate() {
             match width {
+                1 => operands.insert(i, ins[offset] as isize),
                 2 => operands.insert(i, BigEndian::read_u16(&ins[offset..]) as isize),
                 _  => return Err(Error::new(format!("No support for operands of width={}", width))),
             }
@@ -193,6 +199,8 @@ mod tests {
             (OP_ADD, vec![], vec![OP_ADD]),
             (OP_POP, vec![], vec![OP_POP]),
             (OP_CONSTANT, vec![65534], vec![OP_CONSTANT, 255, 254]),
+            (OP_SET_LOCAL, vec![254], vec![OP_SET_LOCAL, 254]),
+            (OP_GET_LOCAL, vec![122], vec![OP_GET_LOCAL, 122]),
         ];
 
         for tt in tests {
@@ -213,6 +221,7 @@ mod tests {
         let tests = vec![
             (OP_CONSTANT, vec![65534], 2),
             (OP_POP, vec![], 0),
+            (OP_GET_LOCAL, vec![122], 1),
         ];
 
         let mcode = MCode::new();
@@ -237,6 +246,7 @@ mod tests {
             make(&OP_CONSTANT, &vec![2]),
             make(&OP_ADD, &vec![]),
             make(&OP_CONSTANT, &vec![65535]),
+            make(&OP_SET_LOCAL, &vec![254]),
         ];
 
         let expected = vec![
@@ -244,6 +254,7 @@ mod tests {
             "0003 OpConstant 2\n",
             "0006 OpAdd\n",
             "0007 OpConstant 65535\n",
+            "0010 OpSetLocal 254\n",
         ].join("");
 
         let actual_ins: Instructions = instructions

@@ -18,12 +18,14 @@ const MAX_FRAMES: usize = 1024;
 struct Frame {
     instructions: Instructions,
     ip: usize,
+    bp: usize,
 }
 
 impl Frame {
-    fn new(instructions: Instructions) -> Self {
+    fn new(instructions: Instructions, bp: usize) -> Self {
         Self {
             instructions,
+            bp,
             ip: 0,
         }
     }
@@ -42,7 +44,7 @@ impl Vm {
     #[cfg(test)]
     pub fn new(bytecode: Bytecode) -> Self {
         let mut frames = Vec::with_capacity(MAX_FRAMES);
-        frames.push(Frame::new(bytecode.instructions));
+        frames.push(Frame::new(bytecode.instructions, 0));
         Self {
             constants: bytecode.contstants,
             globals: Vec::with_capacity(GLOBALS_SIZE),
@@ -55,7 +57,7 @@ impl Vm {
 
     pub fn with_state(bytecode: Bytecode, globals: Vec<MObject>) -> Self {
         let mut frames = Vec::with_capacity(MAX_FRAMES);
-        frames.push(Frame::new(bytecode.instructions));
+        frames.push(Frame::new(bytecode.instructions, 0));
         Self {
             constants: bytecode.contstants,
             globals,
@@ -74,6 +76,7 @@ impl Vm {
         while self.current_frame().ip < self.current_frame().instructions.len() {
             let frame = self.pop_frame();
             let mut ip = frame.ip;
+            let mut bp = frame.bp;
             let mut instructions = frame.instructions;
             let op = instructions[ip];
             ip += 1;
@@ -128,6 +131,52 @@ impl Vm {
                     };
                     self.push(obj)?;
                 },
+                OP_SET_LOCAL => {
+                    let locals_idx: u8 = instructions[ip];
+                    ip += 1;
+
+                    let mut obj = self.pop()?;
+                    let idx = self.current_frame().bp + (locals_idx as usize);
+                    let stack_null = match self.stack.get_mut(idx) {
+                        Some(x) => x,
+                        None => return Err(
+                            Error::new(
+                                format!(
+                                    "No local on stack. index: {}, bp: {}, len: {}, stack:\n{:?}",
+                                    locals_idx,
+                                    self.current_frame().bp,
+                                    self.stack.len(),
+                                    self.stack,
+                                )
+                            )
+                        ),
+                    };
+                    std::mem::swap(
+                        stack_null,
+                        &mut obj,
+                    );
+                },
+                OP_GET_LOCAL => {
+                    let locals_idx: u8 = instructions[ip];
+                    ip += 1;
+
+                    let idx = self.current_frame().bp + (locals_idx as usize);
+                    let obj = match self.stack.get(idx) {
+                        Some(x) => x.clone(),
+                        None => return Err(
+                            Error::new(
+                                format!(
+                                    "No local on stack. index: {}, bp: {}, len: {}, stack:\n{:?}",
+                                    locals_idx,
+                                    self.current_frame().bp,
+                                    self.stack.len(),
+                                    self.stack,
+                                )
+                            )
+                        ),
+                    };
+                    self.stack.push(obj);
+                },
                 OP_ARRAY => {
                     let array_len: usize = BigEndian::read_u16(&instructions[ip..]).into();
                     ip += 2;
@@ -168,8 +217,14 @@ impl Vm {
                         MObject::CompiledFn(x) => x,
                         _ => return Err(Error::new(format!("Expected compiled funtion, got: {}", obj))),
                     };
+                    let num_locals = compiled_fn.num_locals;
 
-                    self.push_frame(Frame { ip, instructions });
+                    let bp = self.stack.len();
+
+                    // Make room for the locals
+                    for _ in 0..num_locals { self.stack.push(NULL); };
+
+                    self.push_frame(Frame { ip, bp, instructions });
 
                     ip = 0;
                     instructions = compiled_fn.instructions;
@@ -178,13 +233,21 @@ impl Vm {
                     let retval = self.pop()?;
                     let frame = self.pop_frame();
                     ip = frame.ip;
+                    bp = frame.bp;
                     instructions = frame.instructions;
+
+                    // Pop off the local variables
+                    for _ in bp..self.stack.len() { self.pop()?; };
                     self.push(retval)?;
                 },
                 OP_RETURN => {
                     let frame = self.pop_frame();
                     ip = frame.ip;
+                    bp = frame.bp;
                     instructions = frame.instructions;
+
+                    // Pop off the local variables
+                    for _ in bp..self.stack.len() { self.pop()?; };
                     self.push(NULL)?;
                 },
                 OP_JUMP => ip = BigEndian::read_u16(&instructions[ip..]).into(),
@@ -197,7 +260,7 @@ impl Vm {
                 },
             };
 
-            self.push_frame(Frame { ip, instructions });
+            self.push_frame(Frame { ip, bp, instructions });
         }
 
         Ok(())
@@ -628,6 +691,69 @@ mod tests {
                 input: r#"
                     let returnsOne = fn() { 1; };
                     let returnsOneReturner = fn() { returnsOne; };
+                    returnsOneReturner()();
+                "#.to_string(),
+                expected: i_to_o(1)
+            },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_calling_funtions_with_bindings() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let one = fn() { let one = 1; one };
+                    one();
+                "#.to_string(),
+                expected: i_to_o(1)
+            },
+            TestCase {
+                input: r#"
+                    let oneAndTwo = fn() { let one = 1; let two = 2; one + two; };
+                    oneAndTwo();
+                "#.to_string(),
+                expected: i_to_o(3)
+            },
+            TestCase {
+                input: r#"
+                    let oneAndTwo = fn() { let one = 1; let two = 2; one + two; };
+                    let threeAndFour = fn() { let three = 3; let four = 4; three + four; };
+                    oneAndTwo() + threeAndFour();
+                "#.to_string(),
+                expected: i_to_o(10)
+            },
+            TestCase {
+                input: r#"
+                    let firstFoobar = fn() { let foobar = 50; foobar; };
+                    let secondFoobar = fn() { let foobar = 100; foobar; };
+                    firstFoobar() + secondFoobar();
+                "#.to_string(),
+                expected: i_to_o(150)
+            },
+            TestCase {
+                input: r#"
+                    let globalSeed = 50;
+                    let minusOne = fn() {
+                        let num = 1;
+                        globalSeed - num;
+                    }
+                    let minusTwo = fn() {
+                        let num = 2;
+                        globalSeed - num;
+                    }
+                    minusOne() + minusTwo();
+                "#.to_string(),
+                expected: i_to_o(97)
+            },
+            TestCase {
+                input: r#"
+                    let returnsOneReturner = fn() {
+                        let returnsOne = fn() { 1; };
+                        returnsOne;
+                    };
                     returnsOneReturner()();
                 "#.to_string(),
                 expected: i_to_o(1)
