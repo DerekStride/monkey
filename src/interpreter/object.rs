@@ -152,6 +152,7 @@ impl fmt::Display for Function {
 pub struct CompiledFunction {
     pub instructions: Instructions,
     pub num_locals: u8,
+    pub num_params: u8,
 }
 
 impl fmt::Display for CompiledFunction {

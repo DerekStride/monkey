@@ -212,14 +212,21 @@ impl Vm {
                     self.push(MObject::Hash(MHash { pairs }))?;
                 },
                 OP_CALL => {
+                    let num_args = instructions[ip]; 
+                    ip += 1;
                     let obj = self.pop()?;
                     let compiled_fn = match obj {
                         MObject::CompiledFn(x) => x,
                         _ => return Err(Error::new(format!("Expected compiled funtion, got: {}", obj))),
                     };
+
+                    if compiled_fn.num_params != num_args {
+                        return Err(Error::new(format!("wrong number of arguments: want={}, got={}", compiled_fn.num_params, num_args)));
+                    };
+
                     let num_locals = compiled_fn.num_locals;
 
-                    let bp = self.stack.len();
+                    let bp = self.stack.len() - (num_args as usize);
 
                     // Make room for the locals
                     for _ in 0..num_locals { self.stack.push(NULL); };
@@ -761,5 +768,110 @@ mod tests {
         ];
 
         run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_calling_funtions_with_arguments_and_bindings() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let identity = fn(a) { a; };
+                    identity(4);
+                "#.to_string(),
+                expected: i_to_o(4)
+            },
+            TestCase {
+                input: r#"
+                    let sum = fn(a, b) { a + b; };
+                    sum(1, 2);
+                "#.to_string(),
+                expected: i_to_o(3)
+            },
+            TestCase {
+                input: r#"
+                    let sum = fn(a, b) {
+                        let c = a + b;
+                        c;
+                    };
+                    sum(1, 2);
+                "#.to_string(),
+                expected: i_to_o(3)
+            },
+            TestCase {
+                input: r#"
+                    let sum = fn(a, b) {
+                        let c = a + b;
+                        c;
+                    };
+                    sum(1, 2) + sum(3, 4);
+                "#.to_string(),
+                expected: i_to_o(10)
+            },
+            TestCase {
+                input: r#"
+                    let sum = fn(a, b) {
+                        let c = a + b;
+                        c;
+                    };
+                    let outer = fn() {
+                        sum(1, 2) + sum(3, 4);
+                    };
+                    outer();
+                "#.to_string(),
+                expected: i_to_o(10)
+            },
+            TestCase {
+                input: r#"
+                    let globalNum = 10;
+
+                    let sum = fn(a, b) {
+                        let c = a + b;
+                        c + globalNum;
+                    };
+
+                    let outer = fn() {
+                        sum(1, 2) + sum(3, 4) + globalNum;
+                    };
+
+                    outer() + globalNum;
+                "#.to_string(),
+                expected: i_to_o(50)
+            },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_calling_functions_with_wrong_arguments() -> Result<()> {
+        let tests = vec![
+            (
+                "fn() { 1; }(1);".to_string(),
+                "wrong number of arguments: want=0, got=1".to_string(),
+            ),
+            (
+                "fn(a) { a; }();".to_string(),
+                "wrong number of arguments: want=1, got=0".to_string(),
+            ),
+            (
+                "fn(a, b) { a + b; }(1);".to_string(),
+                "wrong number of arguments: want=2, got=1".to_string(),
+            ),
+        ];
+
+        for tt in tests {
+            let program = parse(tt.0.as_bytes())?;
+            let mut compiler = Compiler::new();
+            compiler.compile(MNode::Prog(program))?;
+
+            let mut vm = Vm::new(compiler.bytecode());
+
+            match vm.run() {
+                Ok(_) => panic!("Should have received error: Err({})", tt.1),
+                Err(e) => assert_eq!(tt.1, e.to_string()),
+            };
+        };
+
+        Ok(())
     }
 }

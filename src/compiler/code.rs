@@ -72,7 +72,7 @@ impl MCode {
             (OP_ARRAY, Definition { name: "OpArray".to_string(), operand_widths: vec![2] }),
             (OP_HASH, Definition { name: "OpHash".to_string(), operand_widths: vec![2] }),
             (OP_INDEX, Definition { name: "OpIndex".to_string(), operand_widths: vec![] }),
-            (OP_CALL, Definition { name: "OpCall".to_string(), operand_widths: vec![] }),
+            (OP_CALL, Definition { name: "OpCall".to_string(), operand_widths: vec![1] }),
             (OP_RETURN, Definition { name: "OpReturn".to_string(), operand_widths: vec![] }),
             (OP_RETURN_VAL, Definition { name: "OpReturnVal".to_string(), operand_widths: vec![] }),
             (OP_SET_LOCAL, Definition { name: "OpSetLocal".to_string(), operand_widths: vec![1] }),
