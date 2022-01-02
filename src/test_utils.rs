@@ -2,7 +2,7 @@ use std::io::Read;
 
 use crate::{
     ast::*,
-    interpreter::object::*,
+    object::*,
     error::{Result, Error},
     lexer::{
         lexer::Lexer,

@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::{
-    interpreter::object::*,
+    object::*,
     compiler::{
         code::*,
         symbol_table::{SymbolTable, Scope},

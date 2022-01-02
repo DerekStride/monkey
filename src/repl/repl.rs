@@ -3,10 +3,10 @@ use std::io::{self, Read, Write, BufRead, BufReader};
 use crate::{
     lexer::lexer::Lexer,
     parser::parser::Parser,
+    object::{MObject, NULL},
     interpreter::{
         evaluator,
         environment::Environment,
-        object::{MObject, NULL},
     },
     error::{Result, Error},
     compiler::{compiler::Compiler, vm::Vm, symbol_table::SymbolTable},

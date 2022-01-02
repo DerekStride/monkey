@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use crate::{
     error::{Result, Error},
+    object::*,
+    builtin::Builtin,
     interpreter::{
-        object::*,
-        builtin::Builtin,
         environment::Environment,
     },
     ast::*, lexer::{token::Token, token_type::TokenType},

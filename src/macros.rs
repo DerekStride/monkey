@@ -1,8 +1,8 @@
 #[macro_export]
 macro_rules! mhash {
     () => ({
-        $crate::interpreter::object::MObject::Hash(
-            $crate::interpreter::object::MHash {
+        $crate::object::MObject::Hash(
+            $crate::object::MHash {
                 pairs: std::collections::HashMap::new()
             }
         )
@@ -13,13 +13,13 @@ macro_rules! mhash {
 
         $(
             let key = match $k.clone() {
-                $crate::interpreter::object::MObject::Str(x) => $crate::interpreter::object::HashKey::Str(x),
-                $crate::interpreter::object::MObject::Int(x) => $crate::interpreter::object::HashKey::Int(x),
-                $crate::interpreter::object::MObject::Bool(x) => $crate::interpreter::object::HashKey::Bool(x),
+                $crate::object::MObject::Str(x) => $crate::object::HashKey::Str(x),
+                $crate::object::MObject::Int(x) => $crate::object::HashKey::Int(x),
+                $crate::object::MObject::Bool(x) => $crate::object::HashKey::Bool(x),
                 _ => panic!("Expected key to be Int, Str, or Bool. Got: {:?}", $k),
             };
 
-            let pair = $crate::interpreter::object::HashPair {
+            let pair = $crate::object::HashPair {
                 key: $k,
                 value: $v,
             };
@@ -27,8 +27,8 @@ macro_rules! mhash {
             pairs.insert(key, pair);
         )*
 
-        $crate::interpreter::object::MObject::Hash(
-            $crate::interpreter::object::MHash {
+        $crate::object::MObject::Hash(
+            $crate::object::MHash {
                 pairs,
             }
         )
@@ -42,7 +42,7 @@ macro_rules! mhash {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use crate::{test_utils::*, interpreter::object::*};
+    use crate::{test_utils::*, object::*};
 
     #[test]
     fn test_emtyp_mhash() {

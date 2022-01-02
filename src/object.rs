@@ -1,9 +1,7 @@
 use crate::{
     ast::{self, MNode},
-    interpreter::{
-        builtin::Builtin,
-        environment::Environment,
-    },
+    builtin::Builtin,
+    interpreter::environment::Environment,
     compiler::code::{Instructions, MCode},
 };
 use std::{fmt, collections::HashMap};

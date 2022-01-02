@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     error::{Result, Error},
     compiler::code::*,
-    interpreter::object::*,
+    object::*,
     compiler::compiler::Bytecode,
 };
 

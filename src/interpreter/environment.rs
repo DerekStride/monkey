@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::interpreter::{
+use crate::{
     builtin,
     object::MObject,
 };

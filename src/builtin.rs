@@ -2,7 +2,7 @@ use std::{fmt, io::{self, Write}};
 
 use crate::{
     error::Result,
-    interpreter::object::*,
+    object::*,
 };
 
 #[derive(Clone)]
