@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct State {
+struct State {
     constants: Vec<MObject>,
     globals: Vec<MObject>,
     symbols: SymbolTable,
@@ -31,7 +31,7 @@ impl State {
 }
 
 #[derive(Debug)]
-pub enum Env {
+enum Env {
     Eval(Environment),
     Vm(State),
 }
@@ -56,7 +56,7 @@ impl Engine {
         }
     }
 
-    pub fn run(&mut self, node: MNode) -> Result<MObject> {
+    fn run(&mut self, node: MNode) -> Result<MObject> {
         (self.runner)(node, &mut self.env)
     }
 

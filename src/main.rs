@@ -14,7 +14,7 @@ mod ast;
 #[cfg(test)]
 mod test_utils;
 
-use crate::repl::repl::{start, Engine};
+use crate::repl::{start, Engine};
 
 fn main() {
     let args = env::args();
