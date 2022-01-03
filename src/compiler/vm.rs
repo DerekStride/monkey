@@ -4,7 +4,7 @@ use crate::{
     error::{Result, Error},
     compiler::code::*,
     object::*,
-    compiler::compiler::Bytecode,
+    compiler::compiler::Bytecode, builtin,
 };
 
 use byteorder::{ByteOrder, BigEndian};
@@ -177,6 +177,17 @@ impl Vm {
                     };
                     self.stack.push(obj);
                 },
+                OP_GET_BUILTIN => {
+                    let builtin_idx = instructions[ip];
+                    ip += 1;
+
+                    let f = match builtin::get_builtin_by_index(builtin_idx) {
+                        Some(x) => x,
+                        None => return Err(Error::new(format!("No builtin defined with index={}", builtin_idx))),
+                    };
+
+                    self.push(f)?;
+                },
                 OP_ARRAY => {
                     let array_len: usize = BigEndian::read_u16(&instructions[ip..]).into();
                     ip += 2;
@@ -214,27 +225,12 @@ impl Vm {
                 OP_CALL => {
                     let num_args = instructions[ip]; 
                     ip += 1;
-                    let obj = self.pop()?;
-                    let compiled_fn = match obj {
-                        MObject::CompiledFn(x) => x,
-                        _ => return Err(Error::new(format!("Expected compiled funtion, got: {}", obj))),
+
+                    if let Some((bp, ins)) = self.execute_call(num_args)? {
+                        self.push_frame(Frame { ip, bp, instructions });
+                        ip = 0;
+                        instructions = ins;
                     };
-
-                    if compiled_fn.num_params != num_args {
-                        return Err(Error::new(format!("wrong number of arguments: want={}, got={}", compiled_fn.num_params, num_args)));
-                    };
-
-                    let num_locals = compiled_fn.num_locals;
-
-                    let bp = self.stack.len() - (num_args as usize);
-
-                    // Make room for the locals
-                    for _ in 0..num_locals { self.stack.push(NULL); };
-
-                    self.push_frame(Frame { ip, bp, instructions });
-
-                    ip = 0;
-                    instructions = compiled_fn.instructions;
                 },
                 OP_RETURN_VAL => {
                     let retval = self.pop()?;
@@ -399,6 +395,50 @@ impl Vm {
         };
 
         self.push(value)
+    }
+
+    fn execute_call(&mut self, num_args: u8) -> Result<Option<(usize, Instructions)>> {
+        let callee = self.pop()?;
+        match callee {
+            MObject::CompiledFn(x) => self.call_function(x, num_args),
+            MObject::Builtin(x) => self.call_builtin(x, num_args),
+            _ => Err(Error::new(format!("Expected compiled funtion or builtin, got: {}", callee))),
+        }
+    }
+
+    fn call_function(&mut self, callee: CompiledFunction, num_args: u8) -> Result<Option<(usize, Instructions)>> {
+        if callee.num_params != num_args {
+            return Err(Error::new(format!("wrong number of arguments: want={}, got={}", callee.num_params, num_args)));
+        };
+
+        let num_locals = callee.num_locals;
+
+        let bp = self.stack.len() - (num_args as usize);
+
+        // Make room for the locals
+        for _ in 0..num_locals { self.stack.push(NULL); };
+
+
+        Ok(Some((bp, callee.instructions)))
+    }
+
+    fn call_builtin(&mut self, callee: builtin::Builtin, num_args: u8) -> Result<Option<(usize, Instructions)>> {
+        let mut args = Vec::new();
+        for _ in 0..num_args { args.push(self.pop()?); };
+        args.reverse();
+
+        let result = match callee {
+            builtin::Builtin::Len(len) => len(&mut args),
+            builtin::Builtin::First(first) => first(&mut args),
+            builtin::Builtin::Last(last) => last(&mut args),
+            builtin::Builtin::Rest(rest) => rest(&mut args),
+            builtin::Builtin::Push(push) => push(&mut args),
+            builtin::Builtin::Puts(puts) => puts(&mut args),
+        };
+
+        self.push(result?)?;
+
+        Ok(None)
     }
 }
 
@@ -873,5 +913,39 @@ mod tests {
         };
 
         Ok(())
+    }
+
+    #[test]
+    fn test_builtin_functions() -> Result<()> {
+        let tests = vec![
+            TestCase { input: r#"len("")"#.to_string(), expected: i_to_o(0) },
+            TestCase { input: r#"len("four")"#.to_string(), expected: i_to_o(4) },
+            TestCase { input: r#"len("hello world")"#.to_string(), expected: i_to_o(11) },
+            TestCase { input: r#"len([1, 2, 3])"#.to_string(), expected: i_to_o(3) },
+            TestCase { input: r#"len([])"#.to_string(), expected: i_to_o(0) },
+            TestCase { input: r#"puts("hello", "world!")"#.to_string(), expected: NULL },
+            TestCase { input: r#"first([1, 2, 3])"#.to_string(), expected: i_to_o(1) },
+            TestCase { input: r#"first([])"#.to_string(), expected: NULL },
+            TestCase { input: r#"last([1, 2, 3])"#.to_string(), expected: i_to_o(3) },
+            TestCase { input: r#"last([])"#.to_string(), expected: NULL },
+            TestCase { input: r#"rest([1, 2, 3])"#.to_string(), expected: mvec![i_to_o(2), i_to_o(3)] },
+            TestCase { input: r#"rest([])"#.to_string(), expected: NULL },
+            TestCase { input: r#"push([], 1)"#.to_string(), expected: mvec![i_to_o(1)] },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_calling_builtins_with_wrong_arguments() -> Result<()> {
+        let tests = vec![
+            TestCase { input: "len(1)".to_string(), expected: merr!("argument to 'len' not supported, got: 1") },
+            TestCase { input: r#"len("one", "two")"#.to_string(), expected: merr!("wrong number of arguments, got: 2, want: 1") },
+            TestCase { input: "first(1)".to_string(), expected: merr!("argument to 'first' not supported, got: 1") },
+            TestCase { input: "last(1)".to_string(), expected: merr!("argument to 'last' not supported, got: 1") },
+            TestCase { input: "push(1, 1)".to_string(), expected: merr!("first argument to 'push' not supported, got: 1") },
+        ];
+
+        run_vm_tests(&tests)
     }
 }

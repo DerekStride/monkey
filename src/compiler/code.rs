@@ -37,6 +37,7 @@ pub const OP_RETURN: u8             = 22;
 pub const OP_RETURN_VAL: u8         = 23;
 pub const OP_SET_LOCAL: u8          = 24;
 pub const OP_GET_LOCAL: u8          = 25;
+pub const OP_GET_BUILTIN: u8        = 26;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -77,6 +78,7 @@ impl MCode {
             (OP_RETURN_VAL, Definition { name: "OpReturnVal".to_string(), operand_widths: vec![] }),
             (OP_SET_LOCAL, Definition { name: "OpSetLocal".to_string(), operand_widths: vec![1] }),
             (OP_GET_LOCAL, Definition { name: "OpGetLocal".to_string(), operand_widths: vec![1] }),
+            (OP_GET_BUILTIN, Definition { name: "OpGetBuiltin".to_string(), operand_widths: vec![1] }),
         ]);
 
         Self {

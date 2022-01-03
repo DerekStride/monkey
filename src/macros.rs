@@ -39,13 +39,49 @@ macro_rules! mhash {
     });
 }
 
+#[macro_export]
+macro_rules! mvec {
+    () => ({
+        $crate::object::MObject::Array(
+            $crate::object::MArray {
+                elements: std::vec::Vec::new()
+            }
+        )
+    });
+
+    ( $( $elem:expr ),*) => ({
+        let elements = vec![ $( $elem ), * ];
+
+        $crate::object::MObject::Array(
+            $crate::object::MArray {
+                elements,
+            }
+        )
+    });
+
+    ( $( $elem:expr ),* ,) => ({
+        mvec![ $( $elem ), * ]
+    });
+}
+
+#[macro_export]
+macro_rules! merr {
+    ( $value:expr ) => ({
+        $crate::object::MObject::Err(
+            $crate::object::MError {
+                value: $value.to_string()
+            }
+        )
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
     use crate::{test_utils::*, object::*};
 
     #[test]
-    fn test_emtyp_mhash() {
+    fn test_empty_mhash() {
         let expected = MObject::Hash(
             MHash {
                 pairs: HashMap::new(),
@@ -56,6 +92,7 @@ mod tests {
 
         assert_eq!(expected, actual);
     }
+
     #[test]
     fn test_mhash() {
         let expected = MObject::Hash(
@@ -71,6 +108,49 @@ mod tests {
             (i_to_o(1), i_to_o(2)),
             (i_to_o(3), i_to_o(4)),
         ];
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_empty_mvec() {
+        let expected = MObject::Array(
+            MArray {
+                elements: Vec::new(),
+            }
+        );
+
+        let actual = mvec![];
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_mvec() {
+        let expected = MObject::Array(
+            MArray {
+                elements: vec![i_to_o(1), i_to_o(2), i_to_o(3)],
+            }
+        );
+
+        let actual = mvec![
+            i_to_o(1),
+            i_to_o(2),
+            i_to_o(3),
+        ];
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_merr() {
+        let expected = MObject::Err(
+            MError {
+                value: "arguments to `first` must be ARRAY, got 1".to_string(),
+            }
+        );
+
+        let actual = merr!("arguments to `first` must be ARRAY, got 1");
 
         assert_eq!(expected, actual);
     }

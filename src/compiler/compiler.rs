@@ -108,9 +108,18 @@ pub struct Compiler  {
 impl Compiler {
     #[cfg(test)]
     pub fn new() -> Self {
+        let mut symbols = SymbolTable::new();
+
+        symbols.define_builtin("len".to_string());
+        symbols.define_builtin("first".to_string());
+        symbols.define_builtin("last".to_string());
+        symbols.define_builtin("rest".to_string());
+        symbols.define_builtin("push".to_string());
+        symbols.define_builtin("puts".to_string());
+
         Self {
             constants: Vec::new(),
-            symbols: SymbolTable::new(),
+            symbols,
             scopes: vec![CompilationScope::new()],
             code: MCode::new(),
         }
@@ -266,11 +275,12 @@ impl Compiler {
                         };
                         let index = symbol.index;
 
-                        let opcode = if symbol.scope == Scope::Global {
-                            OP_GET_GLOBAL
-                        } else {
-                            OP_GET_LOCAL
+                        let opcode = match symbol.scope {
+                            Scope::Global => OP_GET_GLOBAL,
+                            Scope::Local => OP_GET_LOCAL,
+                            Scope::Builtin => OP_GET_BUILTIN,
                         };
+
                         self.emit(opcode, vec![index as isize]);
                     },
                     Expr::Array(array) => {
@@ -1226,6 +1236,56 @@ mod tests {
                 ],
                 expected_instructions: vec![
                     code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_builtins() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    len([]);
+                    push([], 1);
+                "#.to_string(),
+                expected_constants: vec![i_to_o(1)],
+                expected_instructions: vec![
+                    code.make(&OP_ARRAY, &vec![0]),
+                    code.make(&OP_GET_BUILTIN, &vec![0]),
+                    code.make(&OP_CALL, &vec![1]),
+                    code.make(&OP_POP, &vec![]),
+                    code.make(&OP_ARRAY, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_GET_BUILTIN, &vec![4]),
+                    code.make(&OP_CALL, &vec![2]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    fn() { len([]) }
+                "#.to_string(),
+                expected_constants: vec![
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 0,
+                            num_params: 0,
+                            instructions: vec![
+                                code.make(&OP_ARRAY, &vec![0]),
+                                code.make(&OP_GET_BUILTIN, &vec![0]),
+                                code.make(&OP_CALL, &vec![1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CONSTANT, &vec![0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

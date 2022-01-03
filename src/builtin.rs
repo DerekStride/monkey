@@ -111,6 +111,18 @@ pub const PUTS: MObject = MObject::Builtin(
     Builtin::Puts(self::puts)
 );
 
+pub fn get_builtin_by_index(index: u8) -> Option<MObject> {
+    match index {
+        0 => Some(LEN),
+        1 => Some(FIRST),
+        2 => Some(LAST),
+        3 => Some(REST),
+        4 => Some(PUSH),
+        5 => Some(PUTS),
+        _ => None,
+    }
+}
+
 fn len(args: &mut Vec<MObject>) -> Result<MObject> {
     if args.len() != 1 {
         return Ok(
@@ -260,9 +272,7 @@ fn push(args: &mut Vec<MObject>) -> Result<MObject> {
     }
 }
 
-fn puts(args: &mut Vec<MObject>) -> Result<MObject> {
-    let mut output = io::stdout();
-
+fn puts_internal<T: Write>(output: &mut T, args: &mut Vec<MObject>) -> Result<MObject> {
     for obj in args {
         output.write_all(format!("{}\n", obj).as_bytes())?;
     };
@@ -270,4 +280,12 @@ fn puts(args: &mut Vec<MObject>) -> Result<MObject> {
     output.flush()?;
 
     Ok(NULL)
+}
+
+fn puts(args: &mut Vec<MObject>) -> Result<MObject> {
+    if cfg!(test) {
+        puts_internal(&mut io::sink(), args)
+    } else {
+        puts_internal(&mut io::stdout(), args)
+    }
 }

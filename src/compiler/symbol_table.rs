@@ -4,6 +4,7 @@ use std::collections::HashMap;
 pub enum Scope {
     Global,
     Local,
+    Builtin,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -17,6 +18,7 @@ pub struct Symbol {
 pub struct SymbolTable {
     store: HashMap<String, Symbol>,
     outer: Option<Box<SymbolTable>>,
+    builtins: HashMap<String, Symbol>,
 }
 
 impl SymbolTable {
@@ -24,6 +26,7 @@ impl SymbolTable {
         Self {
             store: HashMap::new(),
             outer: None,
+            builtins: HashMap::new(),
         }
     }
 
@@ -31,12 +34,11 @@ impl SymbolTable {
         Self {
             store: HashMap::new(),
             outer: Some(Box::new(outer)),
+            builtins: HashMap::new(),
         }
     }
 
     pub fn define(&mut self, name: String) -> &Symbol {
-        let index = self.store.len();
-
         let scope = if self.outer.is_none() {
             Scope::Global
         } else {
@@ -45,8 +47,8 @@ impl SymbolTable {
 
         let symbol = Symbol {
             name: name.clone(),
+            index: self.store.len(),
             scope,
-            index,
         };
 
         self.store.insert(name.clone(), symbol);
@@ -54,11 +56,25 @@ impl SymbolTable {
         self.store.get(&name).unwrap()
     }
 
+    pub fn define_builtin(&mut self, name: String) -> &Symbol {
+        let symbol = Symbol {
+            name: name.clone(),
+            scope: Scope::Builtin,
+            index: self.builtins.len(),
+        };
+
+        self.builtins.insert(name.clone(), symbol);
+
+        self.builtins.get(&name).unwrap()
+    }
+
     pub fn resolve(&self, name: &String) -> Option<&Symbol> {
         if let Some(x) = self.store.get(name) {
             Some(x)
         } else if let Some(outer) = &self.outer {
             outer.resolve(name)
+        } else if let Some(x) = self.builtins.get(name) {
+            Some(x)
         } else {
             None
         }
@@ -133,6 +149,38 @@ mod tests {
             let result = nested.resolve(&sym.name).unwrap();
 
             assert_eq!(sym, *result);
+        };
+    }
+
+    #[test]
+    fn test_resolve_builtin() {
+        let a = "a".to_string();
+        let b = "b".to_string();
+        let c = "c".to_string();
+        let d = "d".to_string();
+
+        let mut global = SymbolTable::new();
+        global.define_builtin(a.clone());
+        global.define(b.clone());
+        global.define_builtin(c.clone());
+        global.define_builtin(d.clone());
+
+        let local = SymbolTable::enclose(global);
+        let nested = SymbolTable::enclose(local.clone());
+
+        let expected = vec![
+            Symbol {name: a.clone(), scope: Scope::Builtin, index: 0 },
+            Symbol {name: b.clone(), scope: Scope::Global, index: 0 },
+            Symbol {name: c.clone(), scope: Scope::Builtin, index: 1 },
+            Symbol {name: d.clone(), scope: Scope::Builtin, index: 2 },
+        ];
+
+        for sym in expected {
+            let local_result = local.resolve(&sym.name).unwrap();
+            let nested_result = nested.resolve(&sym.name).unwrap();
+
+            assert_eq!(sym, *local_result);
+            assert_eq!(sym, *nested_result);
         };
     }
 }

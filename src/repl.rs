@@ -22,10 +22,19 @@ struct State {
 
 impl State {
     pub fn new() -> Self {
+        let mut symbols = SymbolTable::new();
+
+        symbols.define_builtin("len".to_string());
+        symbols.define_builtin("first".to_string());
+        symbols.define_builtin("last".to_string());
+        symbols.define_builtin("rest".to_string());
+        symbols.define_builtin("push".to_string());
+        symbols.define_builtin("puts".to_string());
+
         Self {
             constants: Vec::new(),
             globals: Vec::new(),
-            symbols: SymbolTable::new(),
+            symbols,
         }
     }
 }
