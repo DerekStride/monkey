@@ -66,32 +66,21 @@ impl SymbolTable {
         self.builtins.get(&name).unwrap()
     }
 
-    pub fn resolve(&self, name: &String) -> Option<&Symbol> {
+    pub fn resolve(&mut self, name: &String) -> Option<Symbol> {
         if let Some(x) = self.store.get(name) {
-            Some(x)
-        } else if let Some(outer) = &self.outer {
+            Some(x.clone())
+        } else if let Some(outer) = self.outer.as_deref_mut() {
             match outer.resolve(name)? {
-                Symbol { scope: Scope::Local, .. } => None,
+                local @ Symbol { scope: Scope::Local, .. } => {
+                    let free = Symbol::new(name.clone(), Scope::Free, self.free.len());
+                    self.store.insert(name.clone(), free);
+                    self.free.insert(name.clone(), local.clone());
+                    Some(self.store.get(name)?.clone())
+                },
                 x => Some(x),
             }
         } else if let Some(x) = self.builtins.get(name) {
-            Some(x)
-        } else {
-            None
-        }
-    }
-
-    pub fn define_free(&mut self, name: &String) -> Option<&Symbol> {
-        if let Some(outer) = self.outer.as_deref_mut() {
-            match outer.resolve(name)? {
-                local @ Symbol { scope: Scope::Local, .. } => {
-                    let free = Symbol::new(local.name.clone(), Scope::Free, self.free.len());
-                    self.store.insert(local.name.clone(), free);
-                    self.free.insert(local.name.clone(), local.clone());
-                    self.store.get(&local.name)
-                },
-                _ => None,
-            }
+            Some(x.clone())
         } else {
             None
         }
@@ -130,10 +119,10 @@ mod tests {
         let mut global = SymbolTable::new();
 
         assert_eq!(0, global.define(a.clone()).index);
-        assert_eq!(expected[&a], *global.resolve(&a).unwrap());
+        assert_eq!(expected[&a], global.resolve(&a).unwrap());
 
         assert_eq!(1, global.define(b.clone()).index);
-        assert_eq!(expected[&b], *global.resolve(&b).unwrap());
+        assert_eq!(expected[&b], global.resolve(&b).unwrap());
     }
 
     #[test]
@@ -161,7 +150,7 @@ mod tests {
         for sym in expected {
             let result = local.resolve(&sym.name).unwrap();
 
-            assert_eq!(sym, *result);
+            assert_eq!(sym, result);
         };
     }
 
@@ -178,8 +167,8 @@ mod tests {
         global.define_builtin(c.clone());
         global.define_builtin(d.clone());
 
-        let local = SymbolTable::enclose(global);
-        let nested = SymbolTable::enclose(local.clone());
+        let mut local = SymbolTable::enclose(global);
+        let mut nested = SymbolTable::enclose(local.clone());
 
         let expected = vec![
             Symbol::new(a.clone(), Scope::Builtin, 0),
@@ -192,8 +181,8 @@ mod tests {
             let local_result = local.resolve(&sym.name).unwrap();
             let nested_result = nested.resolve(&sym.name).unwrap();
 
-            assert_eq!(sym, *local_result);
-            assert_eq!(sym, *nested_result);
+            assert_eq!(sym, local_result);
+            assert_eq!(sym, nested_result);
         };
     }
 
@@ -255,15 +244,7 @@ mod tests {
 
         for tt in tests {
             for symbol in tt.1 {
-                match tt.0.resolve(&symbol.name) {
-                    Some(x) => assert_eq!(symbol, *x),
-                    None => {
-                        match tt.0.define_free(&symbol.name) {
-                            Some(x) => assert_eq!(symbol, *x),
-                            None => panic!("Expected: {:?}, got: None", symbol),
-                        }
-                    },
-                }
+                assert_eq!(symbol, tt.0.resolve(&symbol.name).unwrap());
             };
             for symbol in tt.2 {
                 assert_eq!(symbol, *tt.0.free_symbols(&symbol.name).unwrap());
@@ -298,16 +279,8 @@ mod tests {
         ];
 
         for symbol in tests {
-            match second_local.resolve(&symbol.name) {
-                Some(x) => assert_eq!(symbol, *x),
-                None => {
-                    match second_local.define_free(&symbol.name) {
-                        Some(x) => assert_eq!(symbol, *x),
-                        None => panic!("Expected: {:?}, got: None", symbol),
-                    }
-                },
-            }
-        };
+            assert_eq!(symbol, second_local.resolve(&symbol.name).unwrap());
+        }
 
         let unresolvable = vec![
             b.clone(),
@@ -316,7 +289,6 @@ mod tests {
 
         for tt in unresolvable {
             assert!(second_local.resolve(&tt).is_none());
-            assert!(second_local.define_free(&tt).is_none());
         };
     }
 }
