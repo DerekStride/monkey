@@ -323,7 +323,7 @@ impl Compiler {
                         let compiled_fn = CompiledFunction { num_locals, num_params, instructions: scope.instructions };
 
                         self.constants.push(MObject::CompiledFn(compiled_fn));
-                        self.emit(OP_CONSTANT, vec![(self.constants.len() - 1) as isize]);
+                        self.emit(OP_CLOSURE, vec![(self.constants.len() - 1) as isize, 0]);
                     },
                     Expr::Call(fn_call) => {
                         let len = fn_call.args.len() as isize;
@@ -940,7 +940,7 @@ mod tests {
                 "#.to_string(),
                 expected_constants: constants1.clone(),
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CLOSURE, &vec![2, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -950,7 +950,7 @@ mod tests {
                 "#.to_string(),
                 expected_constants: constants1.clone(),
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CLOSURE, &vec![2, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -960,7 +960,7 @@ mod tests {
                 "#.to_string(),
                 expected_constants: constants2.clone(),
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CLOSURE, &vec![2, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -991,7 +991,7 @@ mod tests {
                 "#.to_string(),
                 expected_constants: constants,
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CLOSURE, &vec![0, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -1052,7 +1052,7 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
                     code.make(&OP_CALL, &vec![0]),
                     code.make(&OP_POP, &vec![]),
                 ],
@@ -1076,7 +1076,7 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
                     code.make(&OP_SET_GLOBAL, &vec![0]),
                     code.make(&OP_GET_GLOBAL, &vec![0]),
                     code.make(&OP_CALL, &vec![0]),
@@ -1102,7 +1102,7 @@ mod tests {
                     i_to_o(24),
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CLOSURE, &vec![0, 0]),
                     code.make(&OP_SET_GLOBAL, &vec![0]),
                     code.make(&OP_CONSTANT, &vec![1]),
                     code.make(&OP_GET_GLOBAL, &vec![0]),
@@ -1135,7 +1135,7 @@ mod tests {
                     i_to_o(26),
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CLOSURE, &vec![0, 0]),
                     code.make(&OP_SET_GLOBAL, &vec![0]),
                     code.make(&OP_CONSTANT, &vec![1]),
                     code.make(&OP_CONSTANT, &vec![2]),
@@ -1175,7 +1175,7 @@ mod tests {
                 expected_instructions: vec![
                     code.make(&OP_CONSTANT, &vec![0]),
                     code.make(&OP_SET_GLOBAL, &vec![0]),
-                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -1202,7 +1202,7 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -1235,7 +1235,7 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CLOSURE, &vec![2, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -1285,7 +1285,7 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CLOSURE, &vec![0, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

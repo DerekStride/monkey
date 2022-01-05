@@ -88,6 +88,23 @@ impl Vm {
 
                     self.push(self.constants[const_idx].clone())?;
                 },
+                OP_CLOSURE => {
+                    let const_idx: usize = BigEndian::read_u16(&instructions[ip..]).into();
+                    ip += 3;
+
+                    let closure = match &self.constants[const_idx] {
+                        MObject::CompiledFn(f) => {
+                            MObject::Closure(
+                                Closure {
+                                    f: f.clone(),
+                                    free: Vec::new(),
+                                },
+                            )
+                        },
+                        x => return Err(Error::new(format!("Cannot turn {} into a closure.", x))),
+                    };
+                    self.push(closure)?;
+                },
                 OP_ADD..=OP_DIV => self.add_op(op)?,
                 OP_TRUE => self.push(TRUE)?,
                 OP_FALSE => self.push(FALSE)?,
@@ -400,18 +417,19 @@ impl Vm {
     fn execute_call(&mut self, num_args: u8) -> Result<Option<(usize, Instructions)>> {
         let callee = self.pop()?;
         match callee {
-            MObject::CompiledFn(x) => self.call_function(x, num_args),
+            MObject::Closure(x) => self.call_function(x, num_args),
             MObject::Builtin(x) => self.call_builtin(x, num_args),
             _ => Err(Error::new(format!("Expected compiled funtion or builtin, got: {}", callee))),
         }
     }
 
-    fn call_function(&mut self, callee: CompiledFunction, num_args: u8) -> Result<Option<(usize, Instructions)>> {
-        if callee.num_params != num_args {
-            return Err(Error::new(format!("wrong number of arguments: want={}, got={}", callee.num_params, num_args)));
+    fn call_function(&mut self, callee: Closure, num_args: u8) -> Result<Option<(usize, Instructions)>> {
+        let f = callee.f;
+        if f.num_params != num_args {
+            return Err(Error::new(format!("wrong number of arguments: want={}, got={}", f.num_params, num_args)));
         };
 
-        let num_locals = callee.num_locals;
+        let num_locals = f.num_locals;
 
         let bp = self.stack.len() - (num_args as usize);
 
@@ -419,7 +437,7 @@ impl Vm {
         for _ in 0..num_locals { self.stack.push(NULL); };
 
 
-        Ok(Some((bp, callee.instructions)))
+        Ok(Some((bp, f.instructions)))
     }
 
     fn call_builtin(&mut self, callee: builtin::Builtin, num_args: u8) -> Result<Option<(usize, Instructions)>> {

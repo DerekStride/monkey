@@ -167,8 +167,8 @@ impl fmt::Display for CompiledFunction {
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Closure {
-    f: CompiledFunction,
-    free: Vec<MObject>,
+    pub f: CompiledFunction,
+    pub free: Vec<MObject>,
 }
 
 impl fmt::Display for Closure {
