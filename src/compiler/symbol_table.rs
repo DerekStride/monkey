@@ -26,6 +26,7 @@ pub struct SymbolTable {
     store: HashMap<String, Symbol>,
     outer: Option<Box<SymbolTable>>,
     builtins: HashMap<String, Symbol>,
+    free: HashMap<String, Symbol>,
 }
 
 impl SymbolTable {
@@ -34,6 +35,7 @@ impl SymbolTable {
             store: HashMap::new(),
             outer: None,
             builtins: HashMap::new(),
+            free: HashMap::new(),
         }
     }
 
@@ -42,6 +44,7 @@ impl SymbolTable {
             store: HashMap::new(),
             outer: Some(Box::new(outer)),
             builtins: HashMap::new(),
+            free: HashMap::new(),
         }
     }
 
@@ -67,9 +70,28 @@ impl SymbolTable {
         if let Some(x) = self.store.get(name) {
             Some(x)
         } else if let Some(outer) = &self.outer {
-            outer.resolve(name)
+            match outer.resolve(name)? {
+                Symbol { scope: Scope::Local, .. } => None,
+                x => Some(x),
+            }
         } else if let Some(x) = self.builtins.get(name) {
             Some(x)
+        } else {
+            None
+        }
+    }
+
+    pub fn define_free(&mut self, name: &String) -> Option<&Symbol> {
+        if let Some(outer) = self.outer.as_deref_mut() {
+            match outer.resolve(name)? {
+                local @ Symbol { scope: Scope::Local, .. } => {
+                    let free = Symbol::new(local.name.clone(), Scope::Free, self.free.len());
+                    self.store.insert(local.name.clone(), free);
+                    self.free.insert(local.name.clone(), local.clone());
+                    self.store.get(&local.name)
+                },
+                _ => None,
+            }
         } else {
             None
         }
@@ -88,7 +110,7 @@ impl SymbolTable {
     }
 
     pub fn free_symbols(&self, name: &String) -> Option<&Symbol> {
-        None
+        self.free.get(name)
     }
 }
 
@@ -120,8 +142,6 @@ mod tests {
         let b = "b".to_string();
         let c = "c".to_string();
         let d = "d".to_string();
-        let e = "e".to_string();
-        let f = "f".to_string();
 
         let mut global = SymbolTable::new();
         global.define(a.clone());
@@ -131,21 +151,15 @@ mod tests {
         local.define(c.clone());
         local.define(d.clone());
 
-        let mut nested = SymbolTable::enclose(local);
-        nested.define(e.clone());
-        nested.define(f.clone());
-
         let expected = vec![
             Symbol::new(a.clone(), Scope::Global, 0),
             Symbol::new(b.clone(), Scope::Global, 1),
             Symbol::new(c.clone(), Scope::Local, 0),
             Symbol::new(d.clone(), Scope::Local, 1),
-            Symbol::new(e.clone(), Scope::Local, 0),
-            Symbol::new(f.clone(), Scope::Local, 1),
         ];
 
         for sym in expected {
-            let result = nested.resolve(&sym.name).unwrap();
+            let result = local.resolve(&sym.name).unwrap();
 
             assert_eq!(sym, *result);
         };
@@ -195,11 +209,11 @@ mod tests {
         let mut global = SymbolTable::new();
         global.define(a.clone());
         global.define(b.clone());
-        let mut first_local = SymbolTable::new();
+        let mut first_local = SymbolTable::enclose(global.clone());
         first_local.define(c.clone());
         first_local.define(d.clone());
 
-        let mut second_local = SymbolTable::new();
+        let mut second_local = SymbolTable::enclose(first_local.clone());
         second_local.define(e.clone());
         second_local.define(f.clone());
 
@@ -241,7 +255,15 @@ mod tests {
 
         for tt in tests {
             for symbol in tt.1 {
-                assert_eq!(symbol, *tt.0.resolve(&symbol.name).unwrap());
+                match tt.0.resolve(&symbol.name) {
+                    Some(x) => assert_eq!(symbol, *x),
+                    None => {
+                        match tt.0.define_free(&symbol.name) {
+                            Some(x) => assert_eq!(symbol, *x),
+                            None => panic!("Expected: {:?}, got: None", symbol),
+                        }
+                    },
+                }
             };
             for symbol in tt.2 {
                 assert_eq!(symbol, *tt.0.free_symbols(&symbol.name).unwrap());
@@ -276,7 +298,15 @@ mod tests {
         ];
 
         for symbol in tests {
-            assert_eq!(symbol, *second_local.resolve(&symbol.name).unwrap());
+            match second_local.resolve(&symbol.name) {
+                Some(x) => assert_eq!(symbol, *x),
+                None => {
+                    match second_local.define_free(&symbol.name) {
+                        Some(x) => assert_eq!(symbol, *x),
+                        None => panic!("Expected: {:?}, got: None", symbol),
+                    }
+                },
+            }
         };
 
         let unresolvable = vec![
@@ -286,6 +316,7 @@ mod tests {
 
         for tt in unresolvable {
             assert!(second_local.resolve(&tt).is_none());
+            assert!(second_local.define_free(&tt).is_none());
         };
     }
 }
