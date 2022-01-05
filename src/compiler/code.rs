@@ -39,6 +39,7 @@ pub const OP_SET_LOCAL: u8          = 24;
 pub const OP_GET_LOCAL: u8          = 25;
 pub const OP_GET_BUILTIN: u8        = 26;
 pub const OP_CLOSURE: u8            = 27;
+pub const OP_GET_FREE: u8           = 28;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -81,6 +82,7 @@ impl MCode {
             (OP_GET_LOCAL, Definition { name: "OpGetLocal".to_string(), operand_widths: vec![1] }),
             (OP_GET_BUILTIN, Definition { name: "OpGetBuiltin".to_string(), operand_widths: vec![1] }),
             (OP_CLOSURE, Definition { name: "OpClosure".to_string(), operand_widths: vec![2, 1] }),
+            (OP_GET_FREE, Definition { name: "OpGetFree".to_string(), operand_widths: vec![1] }),
         ]);
 
         Self {
