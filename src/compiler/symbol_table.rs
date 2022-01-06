@@ -28,7 +28,7 @@ pub struct SymbolTable {
     store: RefCell<HashMap<String, Rc<Symbol>>>,
     outer: Option<Box<SymbolTable>>,
     builtins: HashMap<String, Rc<Symbol>>,
-    free: RefCell<HashMap<String, Rc<Symbol>>>,
+    free: RefCell<Vec<Rc<Symbol>>>,
 }
 
 impl SymbolTable {
@@ -37,7 +37,7 @@ impl SymbolTable {
             store: RefCell::new(HashMap::new()),
             outer: None,
             builtins: HashMap::new(),
-            free: RefCell::new(HashMap::new()),
+            free: RefCell::new(Vec::new()),
         }
     }
 
@@ -46,7 +46,7 @@ impl SymbolTable {
             store: RefCell::new(HashMap::new()),
             outer: Some(Box::new(outer)),
             builtins: HashMap::new(),
-            free: RefCell::new(HashMap::new()),
+            free: RefCell::new(Vec::new()),
         }
     }
 
@@ -79,7 +79,7 @@ impl SymbolTable {
 
         if let Some(outer) = &self.outer {
             let result = outer.resolve(name)?;
-            if result.scope != Scope::Local { return Some(result); };
+            if result.scope == Scope::Global || result.scope == Scope::Builtin { return Some(result); };
 
             Some(self.define_free(name, result))
         } else if let Some(x) = self.builtins.get(name) {
@@ -96,7 +96,7 @@ impl SymbolTable {
         let free_sym = Rc::new(Symbol::new(name.clone(), Scope::Free, free.len()));
 
         store.insert(name.clone(), free_sym.clone());
-        free.insert(name.clone(), Rc::new(local));
+        free.push(Rc::new(local));
 
         free_sym
     }
@@ -110,11 +110,15 @@ impl SymbolTable {
     }
 
     pub fn len(&self) -> u8 {
-        self.store.borrow().len() as u8
+        (self.store.borrow().len() - self.free.borrow().len()) as u8
     }
 
-    pub fn free_symbols(&self, name: &String) -> Option<Rc<Symbol>> {
-        Some(self.free.borrow().get(name)?.clone())
+    pub fn free_symbols(&self) -> Vec<Rc<Symbol>> {
+        self.free
+            .borrow()
+            .iter()
+            .map(|v| v.clone())
+            .collect::<Vec<Rc<Symbol>>>()
     }
 }
 
@@ -262,7 +266,7 @@ mod tests {
                 assert_eq!(symbol, *tt.0.resolve(&symbol.name).unwrap());
             };
             for symbol in tt.2 {
-                assert_eq!(symbol, *tt.0.free_symbols(&symbol.name).unwrap());
+                assert!(tt.0.free_symbols().contains(&Rc::new(symbol)))
             };
         };
     }

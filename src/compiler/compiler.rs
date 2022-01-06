@@ -4,7 +4,7 @@ use crate::{
     object::*,
     compiler::{
         code::*,
-        symbol_table::{SymbolTable, Scope},
+        symbol_table::{SymbolTable, Symbol, Scope},
     },
     ast::*,
     error::{Result, Error},
@@ -273,16 +273,7 @@ impl Compiler {
                             Some(x) => x,
                             None => return Err(Error::new(format!("Identifier not found: {}", ident))),
                         };
-                        let index = symbol.index;
-
-                        let opcode = match symbol.scope {
-                            Scope::Global => OP_GET_GLOBAL,
-                            Scope::Local => OP_GET_LOCAL,
-                            Scope::Builtin => OP_GET_BUILTIN,
-                            Scope::Free => OP_GET_FREE,
-                        };
-
-                        self.emit(opcode, vec![index as isize]);
+                        self.load_symbol(&symbol);
                     },
                     Expr::Array(array) => {
                         let len = array.elements.len() as isize;
@@ -310,21 +301,23 @@ impl Compiler {
                         self.enter_scope(CompilationScope::new());
 
                         let num_params = function.params.len() as u8;
-                        for param in function.params {
-                            self.symbols.define(param.value);
-                        };
+                        for param in function.params { self.symbols.define(param.value); };
 
                         self.compile(MNode::Stmt(Stmt::Block(function.body)))?;
 
                         if self.last_instruction_is(OP_POP) { self.replace_last_pop_with_return(); };
                         if !self.last_instruction_is(OP_RETURN_VAL) { self.emit(OP_RETURN, vec![]); };
 
+                        let free_symbols = self.symbols.free_symbols();
                         let num_locals = self.symbols.len();
                         let scope = self.leave_scope();
+
+                        for symbol in &free_symbols { self.load_symbol(&symbol); };
+
                         let compiled_fn = CompiledFunction { num_locals, num_params, instructions: scope.instructions };
 
                         self.constants.push(MObject::CompiledFn(compiled_fn));
-                        self.emit(OP_CLOSURE, vec![(self.constants.len() - 1) as isize, 0]);
+                        self.emit(OP_CLOSURE, vec![(self.constants.len() - 1) as isize, free_symbols.len() as isize]);
                     },
                     Expr::Call(fn_call) => {
                         let len = fn_call.args.len() as isize;
@@ -348,6 +341,19 @@ impl Compiler {
         if let Some(scope) = self.scopes.last_mut() {
             scope.emit(&self.code, op, operands);
         };
+    }
+
+    fn load_symbol(&mut self, symbol: &Symbol) {
+        let index = symbol.index;
+
+        let opcode = match symbol.scope {
+            Scope::Global => OP_GET_GLOBAL,
+            Scope::Local => OP_GET_LOCAL,
+            Scope::Builtin => OP_GET_BUILTIN,
+            Scope::Free => OP_GET_FREE,
+        };
+
+        self.emit(opcode, vec![index as isize]);
     }
 
     fn last_instruction_is(&self, opcode: Opcode) -> bool {
@@ -1350,7 +1356,7 @@ mod tests {
                 expected_constants: vec![
                     MObject::CompiledFn(
                         CompiledFunction {
-                            num_locals: 2,
+                            num_locals: 1,
                             num_params: 1,
                             instructions: vec![
                                 code.make(&OP_GET_FREE, &vec![0]),
@@ -1416,7 +1422,7 @@ mod tests {
                     i_to_o(88),
                     MObject::CompiledFn(
                         CompiledFunction {
-                            num_locals: 3,
+                            num_locals: 1,
                             num_params: 0,
                             instructions: vec![
                                 code.make(&OP_CONSTANT, &vec![3]),
@@ -1434,7 +1440,7 @@ mod tests {
                     ),
                     MObject::CompiledFn(
                         CompiledFunction {
-                            num_locals: 2,
+                            num_locals: 1,
                             num_params: 0,
                             instructions: vec![
                                 code.make(&OP_CONSTANT, &vec![2]),
@@ -1462,7 +1468,7 @@ mod tests {
                 ],
                 expected_instructions: vec![
                     code.make(&OP_CONSTANT, &vec![0]),
-                    code.make(&OP_SET_GLOBAL, &vec![]),
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
                     code.make(&OP_CLOSURE, &vec![6, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
