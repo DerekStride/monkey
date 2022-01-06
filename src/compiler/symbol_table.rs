@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum Scope {
@@ -23,16 +23,16 @@ impl Symbol {
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct SymbolTable {
-    store: HashMap<String, Symbol>,
+    store: RefCell<HashMap<String, Rc<Symbol>>>,
     outer: Option<Box<SymbolTable>>,
-    builtins: HashMap<String, Symbol>,
+    builtins: HashMap<String, Rc<Symbol>>,
     free: HashMap<String, Symbol>,
 }
 
 impl SymbolTable {
     pub fn new() -> Self {
         Self {
-            store: HashMap::new(),
+            store: RefCell::new(HashMap::new()),
             outer: None,
             builtins: HashMap::new(),
             free: HashMap::new(),
@@ -41,44 +41,51 @@ impl SymbolTable {
 
     pub fn enclose(outer: SymbolTable) -> Self {
         Self {
-            store: HashMap::new(),
+            store: RefCell::new(HashMap::new()),
             outer: Some(Box::new(outer)),
             builtins: HashMap::new(),
             free: HashMap::new(),
         }
     }
 
-    pub fn define(&mut self, name: String) -> &Symbol {
+    pub fn define(&mut self, name: String) -> Rc<Symbol> {
         let scope = if self.outer.is_none() {
             Scope::Global
         } else {
             Scope::Local
         };
 
-        let symbol = Symbol::new(name.clone(), scope, self.store.len());
-        self.store.insert(name.clone(), symbol);
-        self.store.get(&name).unwrap()
+        let mut store = self.store.borrow_mut();
+        let symbol = Rc::new(Symbol::new(name.clone(), scope, store.len()));
+        store.insert(name.clone(), symbol.clone());
+
+        symbol
     }
 
-    pub fn define_builtin(&mut self, name: String) -> &Symbol {
-        let symbol = Symbol::new(name.clone(), Scope::Builtin, self.builtins.len());
-        self.builtins.insert(name.clone(), symbol);
-        self.builtins.get(&name).unwrap()
+    pub fn define_builtin(&mut self, name: String) -> Rc<Symbol> {
+        let symbol = Rc::new(Symbol::new(name.clone(), Scope::Builtin, self.builtins.len()));
+        self.builtins.insert(name.clone(), symbol.clone());
+        symbol
     }
 
-    pub fn resolve(&mut self, name: &String) -> Option<Symbol> {
-        if let Some(x) = self.store.get(name) {
+    pub fn resolve(&mut self, name: &String) -> Option<Rc<Symbol>> {
+        let mut store = self.store.borrow_mut();
+        if let Some(x) = store.get(name) {
             Some(x.clone())
         } else if let Some(outer) = self.outer.as_deref_mut() {
-            match outer.resolve(name)? {
-                local @ Symbol { scope: Scope::Local, .. } => {
-                    let free = Symbol::new(name.clone(), Scope::Free, self.free.len());
-                    self.store.insert(name.clone(), free);
-                    self.free.insert(name.clone(), local.clone());
-                    Some(self.store.get(name)?.clone())
-                },
-                x => Some(x),
-            }
+            let result = outer.resolve(name)?;
+
+            if result.scope != Scope::Local { return Some(result); };
+
+            let local = Symbol {
+                name: name.clone(),
+                scope: result.scope,
+                index: result.index,
+            };
+            let free = Rc::new(Symbol::new(name.clone(), Scope::Free, self.free.len()));
+            store.insert(name.clone(), free.clone());
+            self.free.insert(name.clone(), local);
+            Some(free)
         } else if let Some(x) = self.builtins.get(name) {
             Some(x.clone())
         } else {
@@ -95,7 +102,7 @@ impl SymbolTable {
     }
 
     pub fn len(&self) -> u8 {
-        self.store.len() as u8
+        self.store.borrow().len() as u8
     }
 
     pub fn free_symbols(&self, name: &String) -> Option<&Symbol> {
@@ -119,10 +126,10 @@ mod tests {
         let mut global = SymbolTable::new();
 
         assert_eq!(0, global.define(a.clone()).index);
-        assert_eq!(expected[&a], global.resolve(&a).unwrap());
+        assert_eq!(expected[&a], *global.resolve(&a).unwrap());
 
         assert_eq!(1, global.define(b.clone()).index);
-        assert_eq!(expected[&b], global.resolve(&b).unwrap());
+        assert_eq!(expected[&b], *global.resolve(&b).unwrap());
     }
 
     #[test]
@@ -150,7 +157,7 @@ mod tests {
         for sym in expected {
             let result = local.resolve(&sym.name).unwrap();
 
-            assert_eq!(sym, result);
+            assert_eq!(sym, *result);
         };
     }
 
@@ -181,8 +188,8 @@ mod tests {
             let local_result = local.resolve(&sym.name).unwrap();
             let nested_result = nested.resolve(&sym.name).unwrap();
 
-            assert_eq!(sym, local_result);
-            assert_eq!(sym, nested_result);
+            assert_eq!(sym, *local_result);
+            assert_eq!(sym, *nested_result);
         };
     }
 
@@ -244,7 +251,7 @@ mod tests {
 
         for tt in tests {
             for symbol in tt.1 {
-                assert_eq!(symbol, tt.0.resolve(&symbol.name).unwrap());
+                assert_eq!(symbol, *tt.0.resolve(&symbol.name).unwrap());
             };
             for symbol in tt.2 {
                 assert_eq!(symbol, *tt.0.free_symbols(&symbol.name).unwrap());
@@ -279,7 +286,7 @@ mod tests {
         ];
 
         for symbol in tests {
-            assert_eq!(symbol, second_local.resolve(&symbol.name).unwrap());
+            assert_eq!(symbol, *second_local.resolve(&symbol.name).unwrap());
         }
 
         let unresolvable = vec![
