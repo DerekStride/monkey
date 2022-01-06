@@ -449,6 +449,7 @@ impl fmt::Display for Infix {
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub struct FnLiteral {
     pub token: Token,
+    pub name: Option<String>,
     pub params: Vec<Identifier>,
     pub body: BlockStatement,
 }
@@ -467,6 +468,9 @@ impl Expression for FnLiteral {
 impl fmt::Display for FnLiteral {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}(", self.token_literal())?;
+        if self.name.is_some() {
+            write!(f, "<{}>", self.name.as_ref().unwrap())?;
+        };
         write!(
             f,
             "{}",
@@ -1114,6 +1118,7 @@ mod tests {
                     Expr::Fn(
                         FnLiteral {
                             token: Token { token_type: TokenType::LET, literal: "let".to_string() },
+                            name: None,
                             params: vec![],
                             body: BlockStatement {
                                 token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },
@@ -1133,6 +1138,7 @@ mod tests {
                     Expr::Fn(
                         FnLiteral {
                             token: Token { token_type: TokenType::LET, literal: "let".to_string() },
+                            name: None,
                             params: vec![],
                             body: BlockStatement {
                                 token: Token { token_type: TokenType::LBRACE, literal: "{".to_string() },

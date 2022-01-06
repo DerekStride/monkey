@@ -137,6 +137,9 @@ impl Vm {
                     };
                     self.push(closure)?;
                 },
+                OP_CURRENT_CLOSURE => {
+                    self.push(MObject::Closure(cl.clone()))?;
+                },
                 OP_ADD..=OP_DIV => self.add_op(op)?,
                 OP_TRUE => self.push(TRUE)?,
                 OP_FALSE => self.push(FALSE)?,
@@ -1130,6 +1133,31 @@ mod tests {
                     wrapper();
                 "#.to_string(),
                 expected: i_to_o(0),
+            },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_recursive_fibonacci() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let fibonacci = fn(x) {
+                        if (x == 0) {
+                            return 0;
+                        } else {
+                            if (x == 1) {
+                                return 1;
+                            } else {
+                                fibonacci(x - 1) + fibonacci(x - 2);
+                            }
+                        }
+                    };
+                    fibonacci(15);
+                "#.to_string(),
+                expected: i_to_o(610),
             },
         ];
 

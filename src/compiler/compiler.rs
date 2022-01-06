@@ -300,6 +300,8 @@ impl Compiler {
                     Expr::Fn(function) => {
                         self.enter_scope(CompilationScope::new());
 
+                        if let Some(name) = function.name { self.symbols.define_function_name(name); };
+
                         let num_params = function.params.len() as u8;
                         for param in function.params { self.symbols.define(param.value); };
 
@@ -351,6 +353,7 @@ impl Compiler {
             Scope::Local => OP_GET_LOCAL,
             Scope::Builtin => OP_GET_BUILTIN,
             Scope::Free => OP_GET_FREE,
+            Scope::Function => return self.emit(OP_CURRENT_CLOSURE, vec![]),
         };
 
         self.emit(opcode, vec![index as isize]);
@@ -1470,6 +1473,95 @@ mod tests {
                     code.make(&OP_CONSTANT, &vec![0]),
                     code.make(&OP_SET_GLOBAL, &vec![0]),
                     code.make(&OP_CLOSURE, &vec![6, 0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_recursive_funcions() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let countDown = fn(x) { countDown(x - 1); };
+                    countDown(1);
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(1),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 1,
+                            instructions: vec![
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_SUB, &vec![]),
+                                code.make(&OP_CURRENT_CLOSURE, &vec![]),
+                                code.make(&OP_CALL, &vec![1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                    i_to_o(1),
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_GET_GLOBAL, &vec![0]),
+                    code.make(&OP_CALL, &vec![1]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    let wrapper = fn() {
+                        let countDown = fn(x) { countDown(x - 1); };
+                        countDown(1);
+                    };
+                    wrapper();
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(1),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 1,
+                            instructions: vec![
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_SUB, &vec![]),
+                                code.make(&OP_CURRENT_CLOSURE, &vec![]),
+                                code.make(&OP_CALL, &vec![1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                    i_to_o(1),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 0,
+                            instructions: vec![
+                                code.make(&OP_CLOSURE, &vec![1, 0]),
+                                code.make(&OP_SET_LOCAL, &vec![0]),
+                                code.make(&OP_CONSTANT, &vec![2]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CALL, &vec![1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CLOSURE, &vec![3, 0]),
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    code.make(&OP_GET_GLOBAL, &vec![0]),
+                    code.make(&OP_CALL, &vec![0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },

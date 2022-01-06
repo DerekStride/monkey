@@ -6,6 +6,7 @@ pub enum Scope {
     Local,
     Builtin,
     Free,
+    Function,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -28,6 +29,7 @@ pub struct SymbolTable {
     store: RefCell<HashMap<String, Rc<Symbol>>>,
     outer: Option<Box<SymbolTable>>,
     builtins: HashMap<String, Rc<Symbol>>,
+    functions: HashMap<String, Rc<Symbol>>,
     free: RefCell<Vec<Rc<Symbol>>>,
 }
 
@@ -37,6 +39,7 @@ impl SymbolTable {
             store: RefCell::new(HashMap::new()),
             outer: None,
             builtins: HashMap::new(),
+            functions: HashMap::new(),
             free: RefCell::new(Vec::new()),
         }
     }
@@ -46,6 +49,7 @@ impl SymbolTable {
             store: RefCell::new(HashMap::new()),
             outer: Some(Box::new(outer)),
             builtins: HashMap::new(),
+            functions: HashMap::new(),
             free: RefCell::new(Vec::new()),
         }
     }
@@ -70,6 +74,12 @@ impl SymbolTable {
         symbol
     }
 
+    pub fn define_function_name(&mut self, name: String) -> Rc<Symbol> {
+        let symbol = Rc::new(Symbol::new(name.clone(), Scope::Function, self.functions.len()));
+        self.functions.insert(name.clone(), symbol.clone());
+        symbol
+    }
+
     pub fn resolve(&self, name: &String) -> Option<Rc<Symbol>> {
         {
             // Make sure the borrow to self.store is released before trying to borrow_mut in define_free
@@ -77,7 +87,9 @@ impl SymbolTable {
             if let Some(x) = store.get(name) { return Some(x.clone()); };
         }
 
-        if let Some(outer) = &self.outer {
+        if let Some(x) = self.functions.get(name) {
+            Some(x.clone())
+        } else if let Some(outer) = &self.outer {
             let result = outer.resolve(name)?;
             if result.scope == Scope::Global || result.scope == Scope::Builtin { return Some(result); };
 
@@ -309,5 +321,16 @@ mod tests {
         for tt in unresolvable {
             assert!(second_local.resolve(&tt).is_none());
         };
+    }
+
+    #[test]
+    fn test_shadowing_function_name() {
+        let a = "a".to_string();
+        let expected = Symbol::new(a.clone(), Scope::Global, 0);
+        let mut global = SymbolTable::new();
+        global.define_function_name(a.clone());
+        global.define(a.clone());
+
+        assert_eq!(expected, *global.resolve(&a).unwrap());
     }
 }
