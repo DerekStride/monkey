@@ -16,18 +16,22 @@ const MAX_FRAMES: usize = 1024;
 
 
 struct Frame {
-    instructions: Instructions,
+    cl: Closure,
     ip: usize,
     bp: usize,
 }
 
 impl Frame {
-    fn new(instructions: Instructions, bp: usize) -> Self {
+    fn new(cl: Closure, bp: usize) -> Self {
         Self {
-            instructions,
+            cl,
             bp,
             ip: 0,
         }
+    }
+
+    fn instructions(&self) -> &Instructions {
+        &self.cl.f.instructions
     }
 }
 
@@ -44,7 +48,17 @@ impl Vm {
     #[cfg(test)]
     pub fn new(bytecode: Bytecode) -> Self {
         let mut frames = Vec::with_capacity(MAX_FRAMES);
-        frames.push(Frame::new(bytecode.instructions, 0));
+        frames.push(Frame::new(
+            Closure {
+                f: CompiledFunction {
+                    instructions: bytecode.instructions,
+                    num_locals: 0,
+                    num_params: 0,
+                },
+                free: Vec::new(),
+            },
+            0,
+        ));
         Self {
             constants: bytecode.contstants,
             globals: Vec::with_capacity(GLOBALS_SIZE),
@@ -57,7 +71,17 @@ impl Vm {
 
     pub fn with_state(bytecode: Bytecode, globals: Vec<MObject>) -> Self {
         let mut frames = Vec::with_capacity(MAX_FRAMES);
-        frames.push(Frame::new(bytecode.instructions, 0));
+        frames.push(Frame::new(
+            Closure {
+                f: CompiledFunction {
+                    instructions: bytecode.instructions,
+                    num_locals: 0,
+                    num_params: 0,
+                },
+                free: Vec::new(),
+            },
+            0,
+        ));
         Self {
             constants: bytecode.contstants,
             globals,
@@ -73,11 +97,12 @@ impl Vm {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        while self.current_frame().ip < self.current_frame().instructions.len() {
+        while self.current_frame().ip < self.current_frame().instructions().len() {
             let frame = self.pop_frame();
             let mut ip = frame.ip;
             let mut bp = frame.bp;
-            let mut instructions = frame.instructions;
+            let mut cl = frame.cl;
+            let instructions: &[u8] = &cl.f.instructions;
             let op = instructions[ip];
             ip += 1;
 
@@ -87,6 +112,33 @@ impl Vm {
                     ip += 2;
 
                     self.push(self.constants[const_idx].clone())?;
+                },
+                OP_CLOSURE => {
+                    let const_idx: usize = BigEndian::read_u16(&instructions[ip..]).into();
+                    let num_free: usize = instructions[ip + 2].into();
+                    ip += 3;
+
+                    let mut free = Vec::with_capacity(num_free);
+
+                    for i in 0..num_free {
+                        free.push(self.stack[self.stack.len() - num_free + i].clone());
+                    };
+
+                    let closure = match &self.constants[const_idx] {
+                        MObject::CompiledFn(f) => {
+                            MObject::Closure(
+                                Closure {
+                                    f: f.clone(),
+                                    free,
+                                },
+                            )
+                        },
+                        x => return Err(Error::new(format!("Cannot turn {} into a closure.", x))),
+                    };
+                    self.push(closure)?;
+                },
+                OP_CURRENT_CLOSURE => {
+                    self.push(MObject::Closure(cl.clone()))?;
                 },
                 OP_ADD..=OP_DIV => self.add_op(op)?,
                 OP_TRUE => self.push(TRUE)?,
@@ -177,6 +229,12 @@ impl Vm {
                     };
                     self.stack.push(obj);
                 },
+                OP_GET_FREE => {
+                    let free_idx: usize = instructions[ip].into();
+                    ip += 1;
+
+                    self.stack.push(cl.free[free_idx].clone());
+                },
                 OP_GET_BUILTIN => {
                     let builtin_idx = instructions[ip];
                     ip += 1;
@@ -226,10 +284,10 @@ impl Vm {
                     let num_args = instructions[ip]; 
                     ip += 1;
 
-                    if let Some((bp, ins)) = self.execute_call(num_args)? {
-                        self.push_frame(Frame { ip, bp, instructions });
+                    if let Some((closure, bp)) = self.execute_call(num_args)? {
+                        self.push_frame(Frame { cl, ip, bp });
                         ip = 0;
-                        instructions = ins;
+                        cl = closure;
                     };
                 },
                 OP_RETURN_VAL => {
@@ -237,7 +295,7 @@ impl Vm {
                     let frame = self.pop_frame();
                     ip = frame.ip;
                     bp = frame.bp;
-                    instructions = frame.instructions;
+                    cl = frame.cl;
 
                     // Pop off the local variables
                     for _ in bp..self.stack.len() { self.pop()?; };
@@ -247,7 +305,7 @@ impl Vm {
                     let frame = self.pop_frame();
                     ip = frame.ip;
                     bp = frame.bp;
-                    instructions = frame.instructions;
+                    cl = frame.cl;
 
                     // Pop off the local variables
                     for _ in bp..self.stack.len() { self.pop()?; };
@@ -263,7 +321,7 @@ impl Vm {
                 },
             };
 
-            self.push_frame(Frame { ip, bp, instructions });
+            self.push_frame(Frame { cl, ip, bp });
         }
 
         Ok(())
@@ -397,32 +455,31 @@ impl Vm {
         self.push(value)
     }
 
-    fn execute_call(&mut self, num_args: u8) -> Result<Option<(usize, Instructions)>> {
+    fn execute_call(&mut self, num_args: u8) -> Result<Option<(Closure, usize)>> {
         let callee = self.pop()?;
         match callee {
-            MObject::CompiledFn(x) => self.call_function(x, num_args),
+            MObject::Closure(x) => self.call_function(x, num_args),
             MObject::Builtin(x) => self.call_builtin(x, num_args),
             _ => Err(Error::new(format!("Expected compiled funtion or builtin, got: {}", callee))),
         }
     }
 
-    fn call_function(&mut self, callee: CompiledFunction, num_args: u8) -> Result<Option<(usize, Instructions)>> {
-        if callee.num_params != num_args {
-            return Err(Error::new(format!("wrong number of arguments: want={}, got={}", callee.num_params, num_args)));
+    fn call_function(&mut self, callee: Closure, num_args: u8) -> Result<Option<(Closure, usize)>> {
+        if callee.f.num_params != num_args {
+            return Err(Error::new(format!("wrong number of arguments: want={}, got={}", callee.f.num_params, num_args)));
         };
 
-        let num_locals = callee.num_locals;
+        let num_locals = callee.f.num_locals;
 
         let bp = self.stack.len() - (num_args as usize);
 
         // Make room for the locals
         for _ in 0..num_locals { self.stack.push(NULL); };
 
-
-        Ok(Some((bp, callee.instructions)))
+        Ok(Some((callee, bp)))
     }
 
-    fn call_builtin(&mut self, callee: builtin::Builtin, num_args: u8) -> Result<Option<(usize, Instructions)>> {
+    fn call_builtin(&mut self, callee: builtin::Builtin, num_args: u8) -> Result<Option<(Closure, usize)>> {
         let mut args = Vec::new();
         for _ in 0..num_args { args.push(self.pop()?); };
         args.reverse();
@@ -944,6 +1001,164 @@ mod tests {
             TestCase { input: "first(1)".to_string(), expected: merr!("argument to 'first' not supported, got: 1") },
             TestCase { input: "last(1)".to_string(), expected: merr!("argument to 'last' not supported, got: 1") },
             TestCase { input: "push(1, 1)".to_string(), expected: merr!("first argument to 'push' not supported, got: 1") },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_closures() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let newClosure = fn(a) {
+                        fn() { a; };
+                    };
+                    let closure = newClosure(99);
+                    closure();
+                "#.to_string(),
+                expected: i_to_o(99),
+            },
+            TestCase {
+                input: r#"
+                    let newAdder = fn(a, b) {
+                        fn(c) { a + b + c };
+                    };
+                    let adder = newAdder(1, 2);
+                    adder(8);
+                "#.to_string(),
+                expected: i_to_o(11),
+            },
+            TestCase {
+                input: r#"
+                    let newAdder = fn(a, b) {
+                        let c = a + b;
+                        fn(d) { c + d };
+                    };
+                    let adder = newAdder(1, 2);
+                    adder(8);
+                "#.to_string(),
+                expected: i_to_o(11),
+            },
+            TestCase {
+                input: r#"
+                    let newAdderOuter = fn(a, b) {
+                        let c = a + b;
+                        fn(d) {
+                            let e = d + c;
+                            fn(f) { e + f; };
+                        };
+                    };
+                    let newAdderInner = newAdderOuter(1, 2)
+                        let adder = newAdderInner(3);
+                    adder(8);
+                "#.to_string(),
+                expected: i_to_o(14),
+            },
+            TestCase {
+                input: r#"
+                    let a = 1;
+                    let newAdderOuter = fn(b) {
+                        fn(c) {
+                            fn(d) { a + b + c + d };
+                        };
+                    };
+                    let newAdderInner = newAdderOuter(2)
+                        let adder = newAdderInner(3);
+                    adder(8);
+                "#.to_string(),
+                expected: i_to_o(14),
+            },
+            TestCase {
+                input: r#"
+                    let newClosure = fn(a, b) {
+                        let one = fn() { a; };
+                        let two = fn() { b; };
+                        fn() { one() + two(); };
+                    };
+                    let closure = newClosure(9, 90);
+                    closure();
+                "#.to_string(),
+                expected: i_to_o(99),
+            },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_recursive_functions() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let countDown = fn(x) {
+                        if (x == 0) {
+                            return 0;
+                        } else {
+                            countDown(x - 1);
+                        }
+                    };
+                    countDown(1);
+                "#.to_string(),
+                expected: i_to_o(0),
+            },
+            TestCase {
+                input: r#"
+                    let countDown = fn(x) {
+                        if (x == 0) {
+                            return 0;
+                        } else {
+                            countDown(x - 1);
+                        }
+                    };
+                    let wrapper = fn() {
+                        countDown(1);
+                    };
+                    wrapper();
+                "#.to_string(),
+                expected: i_to_o(0),
+            },
+            TestCase {
+                input: r#"
+                    let wrapper = fn() {
+                        let countDown = fn(x) {
+                            if (x == 0) {
+                                return 0;
+                            } else {
+                                countDown(x - 1);
+                            }
+                        };
+                        countDown(1);
+                    };
+                    wrapper();
+                "#.to_string(),
+                expected: i_to_o(0),
+            },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_recursive_fibonacci() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let fibonacci = fn(x) {
+                        if (x == 0) {
+                            return 0;
+                        } else {
+                            if (x == 1) {
+                                return 1;
+                            } else {
+                                fibonacci(x - 1) + fibonacci(x - 2);
+                            }
+                        }
+                    };
+                    fibonacci(15);
+                "#.to_string(),
+                expected: i_to_o(610),
+            },
         ];
 
         run_vm_tests(&tests)

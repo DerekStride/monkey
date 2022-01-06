@@ -38,6 +38,9 @@ pub const OP_RETURN_VAL: u8         = 23;
 pub const OP_SET_LOCAL: u8          = 24;
 pub const OP_GET_LOCAL: u8          = 25;
 pub const OP_GET_BUILTIN: u8        = 26;
+pub const OP_CLOSURE: u8            = 27;
+pub const OP_GET_FREE: u8           = 28;
+pub const OP_CURRENT_CLOSURE: u8    = 29;
 
 #[derive(Clone)]
 pub struct Definition {
@@ -79,6 +82,9 @@ impl MCode {
             (OP_SET_LOCAL, Definition { name: "OpSetLocal".to_string(), operand_widths: vec![1] }),
             (OP_GET_LOCAL, Definition { name: "OpGetLocal".to_string(), operand_widths: vec![1] }),
             (OP_GET_BUILTIN, Definition { name: "OpGetBuiltin".to_string(), operand_widths: vec![1] }),
+            (OP_CLOSURE, Definition { name: "OpClosure".to_string(), operand_widths: vec![2, 1] }),
+            (OP_GET_FREE, Definition { name: "OpGetFree".to_string(), operand_widths: vec![1] }),
+            (OP_CURRENT_CLOSURE, Definition { name: "OpCurrentClosure".to_string(), operand_widths: vec![] }),
         ]);
 
         Self {
@@ -163,7 +169,8 @@ impl MCode {
 
         match op_count {
             0 => buf.push_str(&format!("{}", def.name)),
-            1 => buf.push_str(&format!("{} {}", def.name, operands.get(0).unwrap())),
+            1 => buf.push_str(&format!("{} {}", def.name, operands[0])),
+            2 => buf.push_str(&format!("{} {} {}", def.name, operands[0], operands[1])),
             _ => buf.push_str(&format!("ERROR: unhandled operand count ({}) for {}\n", op_count, def.name)),
         }
 
@@ -203,6 +210,7 @@ mod tests {
             (OP_CONSTANT, vec![65534], vec![OP_CONSTANT, 255, 254]),
             (OP_SET_LOCAL, vec![254], vec![OP_SET_LOCAL, 254]),
             (OP_GET_LOCAL, vec![122], vec![OP_GET_LOCAL, 122]),
+            (OP_CLOSURE, vec![65534, 253], vec![OP_CLOSURE, 255, 254, 253]),
         ];
 
         for tt in tests {
@@ -224,6 +232,7 @@ mod tests {
             (OP_CONSTANT, vec![65534], 2),
             (OP_POP, vec![], 0),
             (OP_GET_LOCAL, vec![122], 1),
+            (OP_CLOSURE, vec![65534, 253], 3),
         ];
 
         let mcode = MCode::new();
@@ -249,6 +258,7 @@ mod tests {
             make(&OP_ADD, &vec![]),
             make(&OP_CONSTANT, &vec![65535]),
             make(&OP_SET_LOCAL, &vec![254]),
+            make(&OP_CLOSURE, &vec![65535, 254]),
         ];
 
         let expected = vec![
@@ -257,6 +267,7 @@ mod tests {
             "0006 OpAdd\n",
             "0007 OpConstant 65535\n",
             "0010 OpSetLocal 254\n",
+            "0012 OpClosure 65535 254\n",
         ].join("");
 
         let actual_ins: Instructions = instructions

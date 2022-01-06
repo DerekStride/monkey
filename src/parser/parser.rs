@@ -105,7 +105,14 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
 
         self.ignore_next()?;
 
-        let value = self.parse_expression(Precedence::LOWEST)?;
+        let mut value = self.parse_expression(Precedence::LOWEST)?;
+
+        match value {
+            Expr::Fn(ref mut f) => {
+                f.name = Some(name.value.clone());
+            },
+            _ => {},
+        }
 
         if self.peek_token_is(TokenType::SEMICOLON) {
             self.ignore_next()?;
@@ -331,6 +338,7 @@ impl<I: Iterator<Item = Result<Token>>> Parser<I> {
         Some(
             Expr::Fn(
                 FnLiteral {
+                    name: None,
                     token,
                     params,
                     body,
@@ -1347,6 +1355,28 @@ mod tests {
             }
         } else {
             panic!("Expected hash expression");
+        };
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parsing_functions_with_names() -> Result<()> {
+        let input = "let myFunction = fn() { };".to_string();
+        let program = parse(input)?;
+        assert_eq!(1, program.stmts.len());
+
+        match &program.stmts[0] {
+            Stmt::Let(l) => {
+                assert_eq!("myFunction", &l.name.value);
+                match &l.value {
+                    Expr::Fn(f) => {
+                        assert_eq!("myFunction", f.name.as_ref().unwrap());
+                    },
+                    x => panic!("Expected function literal: {}", x),
+                };
+            },
+            x => panic!("Expected let statement: {}", x),
         };
 
         Ok(())

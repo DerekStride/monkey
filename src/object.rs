@@ -155,7 +155,34 @@ pub struct CompiledFunction {
 
 impl fmt::Display for CompiledFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CompiledFunction [\n{}]", MCode::new().format(&self.instructions))
+        write!(
+            f,
+            "CompiledFunction {{\nnum_locals: {},\nnum_params: {}\ninstructions: [\n{}]",
+            self.num_locals,
+            self.num_params,
+            MCode::new().format(&self.instructions)
+        )
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct Closure {
+    pub f: CompiledFunction,
+    pub free: Vec<MObject>,
+}
+
+impl fmt::Display for Closure {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Closure {{\nfn: {}\nfree variables: [{}]}}",
+            self.f,
+            self.free
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<String>>()
+                .join(", "),
+        )
     }
 }
 
@@ -203,6 +230,7 @@ pub enum MObject {
     Err(MError),
     Fn(Function),
     CompiledFn(CompiledFunction),
+    Closure(Closure),
     Builtin(Builtin),
     Quote(Quote),
     Macro(Macro),
@@ -221,6 +249,7 @@ impl fmt::Display for MObject {
             MObject::Err(x) => write!(f, "{}", x),
             MObject::Fn(x) => write!(f, "{}", x),
             MObject::CompiledFn(x) => write!(f, "{}", x),
+            MObject::Closure(x) => write!(f, "{}", x),
             MObject::Builtin(x) => write!(f, "{}", x),
             MObject::Quote(x) => write!(f, "{}", x),
             MObject::Macro(x) => write!(f, "{}", x),

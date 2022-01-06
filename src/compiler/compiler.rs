@@ -4,7 +4,7 @@ use crate::{
     object::*,
     compiler::{
         code::*,
-        symbol_table::{SymbolTable, Scope},
+        symbol_table::{SymbolTable, Symbol, Scope},
     },
     ast::*,
     error::{Result, Error},
@@ -169,8 +169,8 @@ impl Compiler {
                         };
                     },
                     Stmt::Let(let_stmt) => {
-                        self.compile(MNode::Expr(let_stmt.value))?;
                         let symbol = self.symbols.define(let_stmt.name.value);
+                        self.compile(MNode::Expr(let_stmt.value))?;
                         let index = symbol.index;
 
                         let opcode = if symbol.scope == Scope::Global {
@@ -273,15 +273,7 @@ impl Compiler {
                             Some(x) => x,
                             None => return Err(Error::new(format!("Identifier not found: {}", ident))),
                         };
-                        let index = symbol.index;
-
-                        let opcode = match symbol.scope {
-                            Scope::Global => OP_GET_GLOBAL,
-                            Scope::Local => OP_GET_LOCAL,
-                            Scope::Builtin => OP_GET_BUILTIN,
-                        };
-
-                        self.emit(opcode, vec![index as isize]);
+                        self.load_symbol(&symbol);
                     },
                     Expr::Array(array) => {
                         let len = array.elements.len() as isize;
@@ -308,22 +300,26 @@ impl Compiler {
                     Expr::Fn(function) => {
                         self.enter_scope(CompilationScope::new());
 
+                        if let Some(name) = function.name { self.symbols.define_function_name(name); };
+
                         let num_params = function.params.len() as u8;
-                        for param in function.params {
-                            self.symbols.define(param.value);
-                        };
+                        for param in function.params { self.symbols.define(param.value); };
 
                         self.compile(MNode::Stmt(Stmt::Block(function.body)))?;
 
                         if self.last_instruction_is(OP_POP) { self.replace_last_pop_with_return(); };
                         if !self.last_instruction_is(OP_RETURN_VAL) { self.emit(OP_RETURN, vec![]); };
 
+                        let free_symbols = self.symbols.free_symbols();
                         let num_locals = self.symbols.len();
                         let scope = self.leave_scope();
+
+                        for symbol in &free_symbols { self.load_symbol(&symbol); };
+
                         let compiled_fn = CompiledFunction { num_locals, num_params, instructions: scope.instructions };
 
                         self.constants.push(MObject::CompiledFn(compiled_fn));
-                        self.emit(OP_CONSTANT, vec![(self.constants.len() - 1) as isize]);
+                        self.emit(OP_CLOSURE, vec![(self.constants.len() - 1) as isize, free_symbols.len() as isize]);
                     },
                     Expr::Call(fn_call) => {
                         let len = fn_call.args.len() as isize;
@@ -347,6 +343,20 @@ impl Compiler {
         if let Some(scope) = self.scopes.last_mut() {
             scope.emit(&self.code, op, operands);
         };
+    }
+
+    fn load_symbol(&mut self, symbol: &Symbol) {
+        let index = symbol.index;
+
+        let opcode = match symbol.scope {
+            Scope::Global => OP_GET_GLOBAL,
+            Scope::Local => OP_GET_LOCAL,
+            Scope::Builtin => OP_GET_BUILTIN,
+            Scope::Free => OP_GET_FREE,
+            Scope::Function => return self.emit(OP_CURRENT_CLOSURE, vec![]),
+        };
+
+        self.emit(opcode, vec![index as isize]);
     }
 
     fn last_instruction_is(&self, opcode: Opcode) -> bool {
@@ -940,7 +950,7 @@ mod tests {
                 "#.to_string(),
                 expected_constants: constants1.clone(),
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CLOSURE, &vec![2, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -950,7 +960,7 @@ mod tests {
                 "#.to_string(),
                 expected_constants: constants1.clone(),
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CLOSURE, &vec![2, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -960,7 +970,7 @@ mod tests {
                 "#.to_string(),
                 expected_constants: constants2.clone(),
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CLOSURE, &vec![2, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -991,7 +1001,7 @@ mod tests {
                 "#.to_string(),
                 expected_constants: constants,
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CLOSURE, &vec![0, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -1052,7 +1062,7 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
                     code.make(&OP_CALL, &vec![0]),
                     code.make(&OP_POP, &vec![]),
                 ],
@@ -1076,7 +1086,7 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
                     code.make(&OP_SET_GLOBAL, &vec![0]),
                     code.make(&OP_GET_GLOBAL, &vec![0]),
                     code.make(&OP_CALL, &vec![0]),
@@ -1102,7 +1112,7 @@ mod tests {
                     i_to_o(24),
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CLOSURE, &vec![0, 0]),
                     code.make(&OP_SET_GLOBAL, &vec![0]),
                     code.make(&OP_CONSTANT, &vec![1]),
                     code.make(&OP_GET_GLOBAL, &vec![0]),
@@ -1135,7 +1145,7 @@ mod tests {
                     i_to_o(26),
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_CLOSURE, &vec![0, 0]),
                     code.make(&OP_SET_GLOBAL, &vec![0]),
                     code.make(&OP_CONSTANT, &vec![1]),
                     code.make(&OP_CONSTANT, &vec![2]),
@@ -1175,7 +1185,7 @@ mod tests {
                 expected_instructions: vec![
                     code.make(&OP_CONSTANT, &vec![0]),
                     code.make(&OP_SET_GLOBAL, &vec![0]),
-                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -1202,7 +1212,7 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![1]),
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -1235,7 +1245,7 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
-                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_CLOSURE, &vec![2, 0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
@@ -1285,7 +1295,273 @@ mod tests {
                     )
                 ],
                 expected_instructions: vec![
+                    code.make(&OP_CLOSURE, &vec![0, 0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_closures() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    fn (a) {
+                        fn (b) {
+                            a + b
+                        }
+                    }
+                "#.to_string(),
+                expected_constants: vec![
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 1,
+                            instructions: vec![
+                                code.make(&OP_GET_FREE, &vec![0]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_ADD, &vec![]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 1,
+                            instructions: vec![
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CLOSURE, &vec![0, 1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    fn (a) {
+                        fn (b) {
+                            fn (c) {
+                                a + b + c
+                            }
+                        }
+                    }
+                "#.to_string(),
+                expected_constants: vec![
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 1,
+                            instructions: vec![
+                                code.make(&OP_GET_FREE, &vec![0]),
+                                code.make(&OP_GET_FREE, &vec![1]),
+                                code.make(&OP_ADD, &vec![]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_ADD, &vec![]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 1,
+                            instructions: vec![
+                                code.make(&OP_GET_FREE, &vec![0]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CLOSURE, &vec![0, 2]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 1,
+                            instructions: vec![
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CLOSURE, &vec![1, 1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CLOSURE, &vec![2, 0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    let global = 55;
+
+                    fn () {
+                        let a = 66;
+
+                        fn () {
+                            let b = 77;
+
+                            fn () {
+                                let c = 88;
+
+                                global + a + b + c
+                            }
+                        }
+                    }
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(55),
+                    i_to_o(66),
+                    i_to_o(77),
+                    i_to_o(88),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 0,
+                            instructions: vec![
+                                code.make(&OP_CONSTANT, &vec![3]),
+                                code.make(&OP_SET_LOCAL, &vec![0]),
+                                code.make(&OP_GET_GLOBAL, &vec![0]),
+                                code.make(&OP_GET_FREE, &vec![0]),
+                                code.make(&OP_ADD, &vec![]),
+                                code.make(&OP_GET_FREE, &vec![1]),
+                                code.make(&OP_ADD, &vec![]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_ADD, &vec![]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 0,
+                            instructions: vec![
+                                code.make(&OP_CONSTANT, &vec![2]),
+                                code.make(&OP_SET_LOCAL, &vec![0]),
+                                code.make(&OP_GET_FREE, &vec![0]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CLOSURE, &vec![4, 2]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 0,
+                            instructions: vec![
+                                code.make(&OP_CONSTANT, &vec![1]),
+                                code.make(&OP_SET_LOCAL, &vec![0]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CLOSURE, &vec![5, 1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    )
+                ],
+                expected_instructions: vec![
                     code.make(&OP_CONSTANT, &vec![0]),
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    code.make(&OP_CLOSURE, &vec![6, 0]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+        ];
+
+        run_compiler_tests(tests)
+    }
+
+    #[test]
+    fn test_recursive_funcions() -> Result<()> {
+        let code = MCode::new();
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let countDown = fn(x) { countDown(x - 1); };
+                    countDown(1);
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(1),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 1,
+                            instructions: vec![
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_SUB, &vec![]),
+                                code.make(&OP_CURRENT_CLOSURE, &vec![]),
+                                code.make(&OP_CALL, &vec![1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                    i_to_o(1),
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CLOSURE, &vec![1, 0]),
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    code.make(&OP_CONSTANT, &vec![2]),
+                    code.make(&OP_GET_GLOBAL, &vec![0]),
+                    code.make(&OP_CALL, &vec![1]),
+                    code.make(&OP_POP, &vec![]),
+                ],
+            },
+            TestCase {
+                input: r#"
+                    let wrapper = fn() {
+                        let countDown = fn(x) { countDown(x - 1); };
+                        countDown(1);
+                    };
+                    wrapper();
+                "#.to_string(),
+                expected_constants: vec![
+                    i_to_o(1),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 1,
+                            instructions: vec![
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CONSTANT, &vec![0]),
+                                code.make(&OP_SUB, &vec![]),
+                                code.make(&OP_CURRENT_CLOSURE, &vec![]),
+                                code.make(&OP_CALL, &vec![1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                    i_to_o(1),
+                    MObject::CompiledFn(
+                        CompiledFunction {
+                            num_locals: 1,
+                            num_params: 0,
+                            instructions: vec![
+                                code.make(&OP_CLOSURE, &vec![1, 0]),
+                                code.make(&OP_SET_LOCAL, &vec![0]),
+                                code.make(&OP_CONSTANT, &vec![2]),
+                                code.make(&OP_GET_LOCAL, &vec![0]),
+                                code.make(&OP_CALL, &vec![1]),
+                                code.make(&OP_RETURN_VAL, &vec![]),
+                            ].into_iter().flatten().collect(),
+                        }
+                    ),
+                ],
+                expected_instructions: vec![
+                    code.make(&OP_CLOSURE, &vec![3, 0]),
+                    code.make(&OP_SET_GLOBAL, &vec![0]),
+                    code.make(&OP_GET_GLOBAL, &vec![0]),
+                    code.make(&OP_CALL, &vec![0]),
                     code.make(&OP_POP, &vec![]),
                 ],
             },
