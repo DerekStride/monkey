@@ -65,7 +65,7 @@ impl Engine {
         }
     }
 
-    fn run(&mut self, node: MNode) -> Result<MObject> {
+    pub fn run(&mut self, node: MNode) -> Result<MObject> {
         (self.runner)(node, &mut self.env)
     }
 

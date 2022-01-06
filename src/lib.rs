@@ -1,13 +1,13 @@
 #[macro_use] mod macros;
-mod interpreter;
-mod parser;
-mod error;
+pub mod interpreter;
+pub mod parser;
+pub mod error;
 mod object;
 mod builtin;
-mod lexer;
-mod compiler;
+pub mod lexer;
+pub mod compiler;
 pub mod repl;
-mod ast;
+pub mod ast;
 
 #[cfg(test)]
 mod test_utils;
