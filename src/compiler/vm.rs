@@ -16,18 +16,22 @@ const MAX_FRAMES: usize = 1024;
 
 
 struct Frame {
-    instructions: Instructions,
+    cl: Closure,
     ip: usize,
     bp: usize,
 }
 
 impl Frame {
-    fn new(instructions: Instructions, bp: usize) -> Self {
+    fn new(cl: Closure, bp: usize) -> Self {
         Self {
-            instructions,
+            cl,
             bp,
             ip: 0,
         }
+    }
+
+    fn instructions(&self) -> &Instructions {
+        &self.cl.f.instructions
     }
 }
 
@@ -44,7 +48,17 @@ impl Vm {
     #[cfg(test)]
     pub fn new(bytecode: Bytecode) -> Self {
         let mut frames = Vec::with_capacity(MAX_FRAMES);
-        frames.push(Frame::new(bytecode.instructions, 0));
+        frames.push(Frame::new(
+            Closure {
+                f: CompiledFunction {
+                    instructions: bytecode.instructions,
+                    num_locals: 0,
+                    num_params: 0,
+                },
+                free: Vec::new(),
+            },
+            0,
+        ));
         Self {
             constants: bytecode.contstants,
             globals: Vec::with_capacity(GLOBALS_SIZE),
@@ -57,7 +71,17 @@ impl Vm {
 
     pub fn with_state(bytecode: Bytecode, globals: Vec<MObject>) -> Self {
         let mut frames = Vec::with_capacity(MAX_FRAMES);
-        frames.push(Frame::new(bytecode.instructions, 0));
+        frames.push(Frame::new(
+            Closure {
+                f: CompiledFunction {
+                    instructions: bytecode.instructions,
+                    num_locals: 0,
+                    num_params: 0,
+                },
+                free: Vec::new(),
+            },
+            0,
+        ));
         Self {
             constants: bytecode.contstants,
             globals,
@@ -73,11 +97,12 @@ impl Vm {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        while self.current_frame().ip < self.current_frame().instructions.len() {
+        while self.current_frame().ip < self.current_frame().instructions().len() {
             let frame = self.pop_frame();
             let mut ip = frame.ip;
             let mut bp = frame.bp;
-            let mut instructions = frame.instructions;
+            let mut cl = frame.cl;
+            let mut instructions: &[u8] = &cl.f.instructions;
             let op = instructions[ip];
             ip += 1;
 
@@ -243,10 +268,10 @@ impl Vm {
                     let num_args = instructions[ip]; 
                     ip += 1;
 
-                    if let Some((bp, ins)) = self.execute_call(num_args)? {
-                        self.push_frame(Frame { ip, bp, instructions });
+                    if let Some((closure, bp)) = self.execute_call(num_args)? {
+                        self.push_frame(Frame { cl, ip, bp });
                         ip = 0;
-                        instructions = ins;
+                        cl = closure;
                     };
                 },
                 OP_RETURN_VAL => {
@@ -254,7 +279,7 @@ impl Vm {
                     let frame = self.pop_frame();
                     ip = frame.ip;
                     bp = frame.bp;
-                    instructions = frame.instructions;
+                    cl = frame.cl;
 
                     // Pop off the local variables
                     for _ in bp..self.stack.len() { self.pop()?; };
@@ -264,7 +289,7 @@ impl Vm {
                     let frame = self.pop_frame();
                     ip = frame.ip;
                     bp = frame.bp;
-                    instructions = frame.instructions;
+                    cl = frame.cl;
 
                     // Pop off the local variables
                     for _ in bp..self.stack.len() { self.pop()?; };
@@ -280,7 +305,7 @@ impl Vm {
                 },
             };
 
-            self.push_frame(Frame { ip, bp, instructions });
+            self.push_frame(Frame { cl, ip, bp });
         }
 
         Ok(())
@@ -414,7 +439,7 @@ impl Vm {
         self.push(value)
     }
 
-    fn execute_call(&mut self, num_args: u8) -> Result<Option<(usize, Instructions)>> {
+    fn execute_call(&mut self, num_args: u8) -> Result<Option<(Closure, usize)>> {
         let callee = self.pop()?;
         match callee {
             MObject::Closure(x) => self.call_function(x, num_args),
@@ -423,24 +448,22 @@ impl Vm {
         }
     }
 
-    fn call_function(&mut self, callee: Closure, num_args: u8) -> Result<Option<(usize, Instructions)>> {
-        let f = callee.f;
-        if f.num_params != num_args {
-            return Err(Error::new(format!("wrong number of arguments: want={}, got={}", f.num_params, num_args)));
+    fn call_function(&mut self, callee: Closure, num_args: u8) -> Result<Option<(Closure, usize)>> {
+        if callee.f.num_params != num_args {
+            return Err(Error::new(format!("wrong number of arguments: want={}, got={}", callee.f.num_params, num_args)));
         };
 
-        let num_locals = f.num_locals;
+        let num_locals = callee.f.num_locals;
 
         let bp = self.stack.len() - (num_args as usize);
 
         // Make room for the locals
         for _ in 0..num_locals { self.stack.push(NULL); };
 
-
-        Ok(Some((bp, f.instructions)))
+        Ok(Some((callee, bp)))
     }
 
-    fn call_builtin(&mut self, callee: builtin::Builtin, num_args: u8) -> Result<Option<(usize, Instructions)>> {
+    fn call_builtin(&mut self, callee: builtin::Builtin, num_args: u8) -> Result<Option<(Closure, usize)>> {
         let mut args = Vec::new();
         for _ in 0..num_args { args.push(self.pop()?); };
         args.reverse();
