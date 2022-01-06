@@ -26,7 +26,7 @@ pub struct SymbolTable {
     store: RefCell<HashMap<String, Rc<Symbol>>>,
     outer: Option<Box<SymbolTable>>,
     builtins: HashMap<String, Rc<Symbol>>,
-    free: HashMap<String, Symbol>,
+    free: RefCell<HashMap<String, Rc<Symbol>>>,
 }
 
 impl SymbolTable {
@@ -35,7 +35,7 @@ impl SymbolTable {
             store: RefCell::new(HashMap::new()),
             outer: None,
             builtins: HashMap::new(),
-            free: HashMap::new(),
+            free: RefCell::new(HashMap::new()),
         }
     }
 
@@ -44,7 +44,7 @@ impl SymbolTable {
             store: RefCell::new(HashMap::new()),
             outer: Some(Box::new(outer)),
             builtins: HashMap::new(),
-            free: HashMap::new(),
+            free: RefCell::new(HashMap::new()),
         }
     }
 
@@ -68,29 +68,35 @@ impl SymbolTable {
         symbol
     }
 
-    pub fn resolve(&mut self, name: &String) -> Option<Rc<Symbol>> {
-        let mut store = self.store.borrow_mut();
-        if let Some(x) = store.get(name) {
-            Some(x.clone())
-        } else if let Some(outer) = self.outer.as_deref_mut() {
-            let result = outer.resolve(name)?;
+    pub fn resolve(&self, name: &String) -> Option<Rc<Symbol>> {
+        {
+            // Make sure the borrow to self.store is released before trying to borrow_mut in define_free
+            let store = self.store.borrow();
+            if let Some(x) = store.get(name) { return Some(x.clone()); };
+        }
 
+        if let Some(outer) = &self.outer {
+            let result = outer.resolve(name)?;
             if result.scope != Scope::Local { return Some(result); };
 
-            let local = Symbol {
-                name: name.clone(),
-                scope: result.scope,
-                index: result.index,
-            };
-            let free = Rc::new(Symbol::new(name.clone(), Scope::Free, self.free.len()));
-            store.insert(name.clone(), free.clone());
-            self.free.insert(name.clone(), local);
-            Some(free)
+            Some(self.define_free(name, result))
         } else if let Some(x) = self.builtins.get(name) {
             Some(x.clone())
         } else {
             None
         }
+    }
+
+    fn define_free(&self, name: &String, original: Rc<Symbol>) -> Rc<Symbol> {
+        let mut store = self.store.borrow_mut();
+        let mut free = self.free.borrow_mut();
+        let local = Symbol { name: name.clone(), scope: original.scope, index: original.index };
+        let free_sym = Rc::new(Symbol::new(name.clone(), Scope::Free, free.len()));
+
+        store.insert(name.clone(), free_sym.clone());
+        free.insert(name.clone(), Rc::new(local));
+
+        free_sym
     }
 
     pub fn outer(&mut self) -> Option<Self> {
@@ -105,8 +111,8 @@ impl SymbolTable {
         self.store.borrow().len() as u8
     }
 
-    pub fn free_symbols(&self, name: &String) -> Option<&Symbol> {
-        self.free.get(name)
+    pub fn free_symbols(&self, name: &String) -> Option<Rc<Symbol>> {
+        Some(self.free.borrow().get(name)?.clone())
     }
 }
 
@@ -174,8 +180,8 @@ mod tests {
         global.define_builtin(c.clone());
         global.define_builtin(d.clone());
 
-        let mut local = SymbolTable::enclose(global);
-        let mut nested = SymbolTable::enclose(local.clone());
+        let local = SymbolTable::enclose(global);
+        let nested = SymbolTable::enclose(local.clone());
 
         let expected = vec![
             Symbol::new(a.clone(), Scope::Builtin, 0),
