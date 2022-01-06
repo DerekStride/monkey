@@ -106,7 +106,6 @@ pub struct Compiler  {
 }
 
 impl Compiler {
-    #[cfg(test)]
     pub fn new() -> Self {
         let mut symbols = SymbolTable::new();
 

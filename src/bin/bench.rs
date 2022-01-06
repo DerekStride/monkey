@@ -5,12 +5,15 @@ use monkey::{
         lexer::Lexer,
         token::Token,
     },
+    compiler::{
+        vm::Vm,
+        compiler::Compiler,
+    },
     parser::parser::Parser,
     repl::Engine,
 };
 
 use std::{
-    env,
     io::Read,
     time::Instant,
 };
@@ -31,13 +34,16 @@ fibonacci(15);
 "#;
 
 fn main() -> Result<()> {
-    let mut vm = Engine::vm();
     let program_vm = MNode::Prog(parse(INPUT.to_string())?);
     let mut eval = Engine::eval();
     let program_eval = MNode::Prog(parse(INPUT.to_string())?);
 
+    let mut compiler = Compiler::new();
+    compiler.compile(program_vm)?;
+    let mut vm = Vm::new(compiler.bytecode());
+
     let start = Instant::now();
-    vm.run(program_vm)?;
+    vm.run()?;
     let elapsed_vm = start.elapsed();
     println!("Vm:");
     println!("\t{}s", elapsed_vm.as_secs());

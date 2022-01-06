@@ -28,6 +28,7 @@ mod tests {
             lexer::Lexer,
             token::Token,
         },
+        compiler::compiler::Compiler,
         parser::parser::Parser,
         repl::Engine,
     };
@@ -62,6 +63,17 @@ mod tests {
 
     #[bench]
     fn bench_parse(b: &mut Bencher) -> Result<()> {
+        b.iter(|| {
+            let program = MNode::Prog(parse(INPUT.to_string()).unwrap());
+            let mut compiler = Compiler::new();
+            assert!(compiler.compile(program).is_ok())
+        });
+
+        Ok(())
+    }
+
+    #[bench]
+    fn bench_compile(b: &mut Bencher) -> Result<()> {
         b.iter(|| {
             parse(INPUT.to_string())
         });

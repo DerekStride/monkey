@@ -10,11 +10,11 @@ use crate::{
 use byteorder::{ByteOrder, BigEndian};
 
 const STACK_SIZE: usize = 2048;
-#[cfg(test)]
 const GLOBALS_SIZE: usize = 2usize.pow(16);
 const MAX_FRAMES: usize = 1024;
 
 
+#[derive(Debug)]
 struct Frame {
     cl: Closure,
     ip: usize,
@@ -35,6 +35,7 @@ impl Frame {
     }
 }
 
+#[derive(Debug)]
 pub struct Vm {
     constants: Vec<MObject>,
     globals: Vec<MObject>,
@@ -45,7 +46,6 @@ pub struct Vm {
 }
 
 impl Vm {
-    #[cfg(test)]
     pub fn new(bytecode: Bytecode) -> Self {
         let mut frames = Vec::with_capacity(MAX_FRAMES);
         frames.push(Frame::new(
