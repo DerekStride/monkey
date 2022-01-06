@@ -21,6 +21,8 @@ impl Symbol {
     }
 }
 
+// Using RefCell and Rc in SymbolTable makes the program not thread-safe. This could be cleaned up
+// to use Arc and a mutex.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct SymbolTable {
     store: RefCell<HashMap<String, Rc<Symbol>>>,
