@@ -169,8 +169,8 @@ impl Compiler {
                         };
                     },
                     Stmt::Let(let_stmt) => {
-                        self.compile(MNode::Expr(let_stmt.value))?;
                         let symbol = self.symbols.define(let_stmt.name.value);
+                        self.compile(MNode::Expr(let_stmt.value))?;
                         let index = symbol.index;
 
                         let opcode = if symbol.scope == Scope::Global {

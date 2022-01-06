@@ -102,7 +102,7 @@ impl Vm {
             let mut ip = frame.ip;
             let mut bp = frame.bp;
             let mut cl = frame.cl;
-            let mut instructions: &[u8] = &cl.f.instructions;
+            let instructions: &[u8] = &cl.f.instructions;
             let op = instructions[ip];
             ip += 1;
 
@@ -115,14 +115,21 @@ impl Vm {
                 },
                 OP_CLOSURE => {
                     let const_idx: usize = BigEndian::read_u16(&instructions[ip..]).into();
+                    let num_free: usize = instructions[ip + 2].into();
                     ip += 3;
+
+                    let mut free = Vec::with_capacity(num_free);
+
+                    for i in 0..num_free {
+                        free.push(self.stack[self.stack.len() - num_free + i].clone());
+                    };
 
                     let closure = match &self.constants[const_idx] {
                         MObject::CompiledFn(f) => {
                             MObject::Closure(
                                 Closure {
                                     f: f.clone(),
-                                    free: Vec::new(),
+                                    free,
                                 },
                             )
                         },
@@ -218,6 +225,12 @@ impl Vm {
                         ),
                     };
                     self.stack.push(obj);
+                },
+                OP_GET_FREE => {
+                    let free_idx: usize = instructions[ip].into();
+                    ip += 1;
+
+                    self.stack.push(cl.free[free_idx].clone());
                 },
                 OP_GET_BUILTIN => {
                     let builtin_idx = instructions[ip];
@@ -985,6 +998,139 @@ mod tests {
             TestCase { input: "first(1)".to_string(), expected: merr!("argument to 'first' not supported, got: 1") },
             TestCase { input: "last(1)".to_string(), expected: merr!("argument to 'last' not supported, got: 1") },
             TestCase { input: "push(1, 1)".to_string(), expected: merr!("first argument to 'push' not supported, got: 1") },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_closures() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let newClosure = fn(a) {
+                        fn() { a; };
+                    };
+                    let closure = newClosure(99);
+                    closure();
+                "#.to_string(),
+                expected: i_to_o(99),
+            },
+            TestCase {
+                input: r#"
+                    let newAdder = fn(a, b) {
+                        fn(c) { a + b + c };
+                    };
+                    let adder = newAdder(1, 2);
+                    adder(8);
+                "#.to_string(),
+                expected: i_to_o(11),
+            },
+            TestCase {
+                input: r#"
+                    let newAdder = fn(a, b) {
+                        let c = a + b;
+                        fn(d) { c + d };
+                    };
+                    let adder = newAdder(1, 2);
+                    adder(8);
+                "#.to_string(),
+                expected: i_to_o(11),
+            },
+            TestCase {
+                input: r#"
+                    let newAdderOuter = fn(a, b) {
+                        let c = a + b;
+                        fn(d) {
+                            let e = d + c;
+                            fn(f) { e + f; };
+                        };
+                    };
+                    let newAdderInner = newAdderOuter(1, 2)
+                        let adder = newAdderInner(3);
+                    adder(8);
+                "#.to_string(),
+                expected: i_to_o(14),
+            },
+            TestCase {
+                input: r#"
+                    let a = 1;
+                    let newAdderOuter = fn(b) {
+                        fn(c) {
+                            fn(d) { a + b + c + d };
+                        };
+                    };
+                    let newAdderInner = newAdderOuter(2)
+                        let adder = newAdderInner(3);
+                    adder(8);
+                "#.to_string(),
+                expected: i_to_o(14),
+            },
+            TestCase {
+                input: r#"
+                    let newClosure = fn(a, b) {
+                        let one = fn() { a; };
+                        let two = fn() { b; };
+                        fn() { one() + two(); };
+                    };
+                    let closure = newClosure(9, 90);
+                    closure();
+                "#.to_string(),
+                expected: i_to_o(99),
+            },
+        ];
+
+        run_vm_tests(&tests)
+    }
+
+    #[test]
+    fn test_recursive_functions() -> Result<()> {
+        let tests = vec![
+            TestCase {
+                input: r#"
+                    let countDown = fn(x) {
+                        if (x == 0) {
+                            return 0;
+                        } else {
+                            countDown(x - 1);
+                        }
+                    };
+                    countDown(1);
+                "#.to_string(),
+                expected: i_to_o(0),
+            },
+            TestCase {
+                input: r#"
+                    let countDown = fn(x) {
+                        if (x == 0) {
+                            return 0;
+                        } else {
+                            countDown(x - 1);
+                        }
+                    };
+                    let wrapper = fn() {
+                        countDown(1);
+                    };
+                    wrapper();
+                "#.to_string(),
+                expected: i_to_o(0),
+            },
+            TestCase {
+                input: r#"
+                    let wrapper = fn() {
+                        let countDown = fn(x) {
+                            if (x == 0) {
+                                return 0;
+                            } else {
+                                countDown(x - 1);
+                            }
+                        };
+                        countDown(1);
+                    };
+                    wrapper();
+                "#.to_string(),
+                expected: i_to_o(0),
+            },
         ];
 
         run_vm_tests(&tests)
