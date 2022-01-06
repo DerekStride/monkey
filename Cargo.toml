@@ -3,7 +3,13 @@ name = "monkey"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "monkey"
+path = "src/lib.rs"
 
 [dependencies]
 byteorder = "1"
+
+[[bin]]
+name = "repl"
+path = "src/bin/repl.rs"
