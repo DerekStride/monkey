@@ -1,4 +1,4 @@
-use std::{fmt, collections::HashMap, hash::{Hash, Hasher}};
+use std::{fmt, collections::HashMap, hash::{Hash, Hasher}, cell::RefCell, rc::Rc};
 
 use crate::{lexer::token::Token, interpreter::environment::Environment};
 
@@ -643,14 +643,14 @@ impl fmt::Display for Expr {
     }
 }
 
-pub fn modify(node: MNode, env: &mut Environment, modifier: fn(MNode, &mut Environment) -> MNode) -> MNode {
+pub fn modify(node: MNode, env: Rc<RefCell<Environment>>, modifier: fn(MNode, Rc<RefCell<Environment>>) -> MNode) -> MNode {
     match node {
         MNode::Prog(p) => {
             let mut prog = p.clone();
             prog.stmts = prog.stmts
                 .iter()
                 .map(|stmt| {
-                    match modify(MNode::Stmt(stmt.clone()), env, modifier) {
+                    match modify(MNode::Stmt(stmt.clone()), env.clone(), modifier) {
                         MNode::Stmt(x) => x,
                         _ => stmt.clone(),
                     }
@@ -676,7 +676,7 @@ pub fn modify(node: MNode, env: &mut Environment, modifier: fn(MNode, &mut Envir
                     block.stmts = block.stmts
                         .iter()
                         .map(|stmt| {
-                            match modify(MNode::Stmt(stmt.clone()), env, modifier) {
+                            match modify(MNode::Stmt(stmt.clone()), env.clone(), modifier) {
                                 MNode::Stmt(x) => x,
                                 _ => stmt.clone(),
                             }
@@ -713,7 +713,7 @@ pub fn modify(node: MNode, env: &mut Environment, modifier: fn(MNode, &mut Envir
                 Expr::In(i) => {
                     let mut infix = i.clone();
                     let left = *infix.left;
-                    infix.left = match modify(MNode::Expr(left.clone()), env, modifier) {
+                    infix.left = match modify(MNode::Expr(left.clone()), env.clone(), modifier) {
                         MNode::Expr(x) => Box::new(x),
                         _ => Box::new(left),
                     };
@@ -740,7 +740,7 @@ pub fn modify(node: MNode, env: &mut Environment, modifier: fn(MNode, &mut Envir
                 Expr::Index(i) => {
                     let mut index_expr = i.clone();
                     let left = *index_expr.left;
-                    index_expr.left = match modify(MNode::Expr(left.clone()), env, modifier) {
+                    index_expr.left = match modify(MNode::Expr(left.clone()), env.clone(), modifier) {
                         MNode::Expr(x) => Box::new(x),
                         _ => Box::new(left),
                     };
@@ -756,13 +756,13 @@ pub fn modify(node: MNode, env: &mut Environment, modifier: fn(MNode, &mut Envir
                 Expr::If(i) => {
                     let mut if_expr = i.clone();
                     let condition = *if_expr.condition;
-                    if_expr.condition = match modify(MNode::Expr(condition.clone()), env, modifier) {
+                    if_expr.condition = match modify(MNode::Expr(condition.clone()), env.clone(), modifier) {
                         MNode::Expr(x) => Box::new(x),
                         _ => Box::new(condition),
                     };
 
                     let consequence = if_expr.consequence;
-                    if_expr.consequence = match modify(MNode::Stmt(Stmt::Block(consequence.clone())), env, modifier) {
+                    if_expr.consequence = match modify(MNode::Stmt(Stmt::Block(consequence.clone())), env.clone(), modifier) {
                         MNode::Stmt(x) => {
                             match x {
                                 Stmt::Block(b) => b,
@@ -791,7 +791,7 @@ pub fn modify(node: MNode, env: &mut Environment, modifier: fn(MNode, &mut Envir
                     func.params = func.params
                         .iter()
                         .map(|ident| {
-                            match modify(MNode::Expr(Expr::Ident(ident.clone())), env, modifier) {
+                            match modify(MNode::Expr(Expr::Ident(ident.clone())), env.clone(), modifier) {
                                 MNode::Expr(e) => {
                                     match e {
                                         Expr::Ident(i) => i,
@@ -821,7 +821,7 @@ pub fn modify(node: MNode, env: &mut Environment, modifier: fn(MNode, &mut Envir
                     array.elements = array.elements
                         .iter()
                         .map(|expr| {
-                            match modify(MNode::Expr(expr.clone()), env, modifier) {
+                            match modify(MNode::Expr(expr.clone()), env.clone(), modifier) {
                                 MNode::Expr(e) => e,
                                 _ => expr.clone(),
                             }
@@ -835,12 +835,12 @@ pub fn modify(node: MNode, env: &mut Environment, modifier: fn(MNode, &mut Envir
                     hash.pairs = hash.pairs
                         .iter()
                         .map(|(key, value)| {
-                            let new_key = match modify(MNode::Expr(key.clone()), env, modifier) {
+                            let new_key = match modify(MNode::Expr(key.clone()), env.clone(), modifier) {
                                 MNode::Expr(e) => e,
                                 _ => key.clone(),
                             };
 
-                            let new_value = match modify(MNode::Expr(value.clone()), env, modifier) {
+                            let new_value = match modify(MNode::Expr(value.clone()), env.clone(), modifier) {
                                 MNode::Expr(v) => v,
                                 _ => value.clone(),
                             };
@@ -1197,7 +1197,7 @@ mod tests {
             ),
         ];
 
-        let turn_one_into_two = |node: MNode, _: &mut Environment| -> MNode {
+        let turn_one_into_two = |node: MNode, _: Rc<RefCell<Environment>>| -> MNode {
             if let MNode::Expr(ref e) = node {
                 if let Expr::Int(i) = e {
                     if i.value == 1 {
@@ -1210,10 +1210,10 @@ mod tests {
             node
         };
 
-        let env = &mut Environment::new();
+        let env = Environment::new();
 
         for tt in tests {
-            let modified = modify(tt.0, env, turn_one_into_two);
+            let modified = modify(tt.0, env.clone(), turn_one_into_two);
             assert_eq!(tt.1, modified);
         };
 

@@ -4,7 +4,7 @@ use crate::{
     interpreter::environment::Environment,
     compiler::code::{Instructions, MCode},
 };
-use std::{fmt, collections::HashMap};
+use std::{fmt, collections::HashMap, cell::RefCell, rc::Rc};
 
 pub const TRUE: MObject = MObject::Bool(Boolean { value: true });
 pub const FALSE: MObject = MObject::Bool(Boolean { value: false });
@@ -128,7 +128,7 @@ impl fmt::Display for MError {
 pub struct Function {
     pub params: Vec<ast::Identifier>,
     pub body: ast::BlockStatement,
-    pub env: Environment,
+    pub env: Rc<RefCell<Environment>>,
 }
 
 impl fmt::Display for Function {
@@ -201,7 +201,7 @@ impl fmt::Display for Quote {
 pub struct Macro {
     pub params: Vec<ast::Identifier>,
     pub body: ast::BlockStatement,
-    pub env: Environment,
+    pub env: Rc<RefCell<Environment>>,
 }
 
 impl fmt::Display for Macro {

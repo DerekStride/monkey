@@ -1,12 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, cell::RefCell, rc::Rc};
 
 use crate::{
     error::{Result, Error},
     object::*,
     builtin::Builtin,
-    interpreter::{
-        environment::Environment,
-    },
+    interpreter::environment::Environment,
     ast::*, lexer::{token::Token, token_type::TokenType},
 };
 
@@ -46,7 +44,7 @@ fn is_macro_definition(statement: &Stmt) -> bool {
     }
 }
 
-fn add_macro(statement: &Stmt, env: &mut Environment) {
+fn add_macro(statement: &Stmt, env: Rc<RefCell<Environment>>) {
     match statement {
         Stmt::Let(stmt) => {
             match stmt.value {
@@ -56,7 +54,8 @@ fn add_macro(statement: &Stmt, env: &mut Environment) {
                         body: x.body.clone(),
                         env: env.clone(),
                     };
-                    env.insert(stmt.name.value.clone(), MObject::Macro(macro_lit));
+                    let mut e = env.borrow_mut();
+                    e.insert(stmt.name.value.clone(), MObject::Macro(macro_lit));
                 },
                 _ => {},
             }
@@ -65,12 +64,12 @@ fn add_macro(statement: &Stmt, env: &mut Environment) {
     };
 }
 
-pub fn define_macros(program: &mut Program, env: &mut Environment) {
+pub fn define_macros(program: &mut Program, env: Rc<RefCell<Environment>>) {
     let mut definitions = vec![];
 
     for (i, statement) in program.stmts.iter().enumerate() {
         if is_macro_definition(statement) {
-            add_macro(statement, env);
+            add_macro(statement, env.clone());
             definitions.push(i);
         }
     }
@@ -80,10 +79,13 @@ pub fn define_macros(program: &mut Program, env: &mut Environment) {
     }
 }
 
-fn is_macro_call(call: &FnCall, env: &mut Environment) -> Option<Macro> {
+fn is_macro_call(call: &FnCall, env: Rc<RefCell<Environment>>) -> Option<Macro> {
     if let Expr::Ident(ident) = &*call.function {
-        if let Some(MObject::Macro(obj)) = env.get(&ident.value) {
-            return Some(obj.clone());
+        let env = env.borrow();
+        if let Some(obj) = env.get(&ident.value) {
+            if let MObject::Macro(m) = obj.as_ref() {
+                return Some(m.clone());
+            };
         };
     };
     None
@@ -99,20 +101,23 @@ fn quote_args(call: FnCall) -> Vec<Quote> {
     args
 }
 
-fn extend_macro_env(mac: Macro, args: Vec<Quote>) -> Environment {
-    let mut extended = Environment::enclose(mac.env);
+fn extend_macro_env(mac: Macro, args: Vec<Quote>) -> Rc<RefCell<Environment>> {
+    let extended = Environment::enclose(mac.env);
+    {
+        let mut env = extended.borrow_mut();
 
-    for (i, param) in mac.params.iter().enumerate() {
-        if let Some(arg) = args.get(i) {
-            extended.insert(param.value.clone(), MObject::Quote(arg.clone()));
+        for (i, param) in mac.params.iter().enumerate() {
+            if let Some(arg) = args.get(i) {
+                env.insert(param.value.clone(), MObject::Quote(arg.clone()));
+            };
         };
-    };
+    }
 
     extended
 }
 
-pub fn expand_macros(program: Program, env: &mut Environment) -> MNode {
-    crate::ast::modify(MNode::Prog(program), env, |node: MNode, env: &mut Environment| -> MNode {
+pub fn expand_macros(program: Program, env: Rc<RefCell<Environment>>) -> MNode {
+    crate::ast::modify(MNode::Prog(program), env, |node: MNode, env: Rc<RefCell<Environment>>| -> MNode {
         match node {
             MNode::Expr(Expr::Call(ref c)) => {
                 let mac = if let Some(m) = is_macro_call(c, env) {
@@ -122,9 +127,9 @@ pub fn expand_macros(program: Program, env: &mut Environment) -> MNode {
                 };
 
                 let args = quote_args(c.clone());
-                let mut eval_env = extend_macro_env(mac.clone(), args);
+                let eval_env = extend_macro_env(mac.clone(), args);
 
-                let evaluated = eval(MNode::Stmt(Stmt::Block(mac.body)), &mut eval_env);
+                let evaluated = eval(MNode::Stmt(Stmt::Block(mac.body)), eval_env);
 
                 if let Ok(MObject::Quote(q)) = evaluated {
                     return q.node;
@@ -137,7 +142,7 @@ pub fn expand_macros(program: Program, env: &mut Environment) -> MNode {
     })
 }
 
-pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
+pub fn eval(node: MNode, env: Rc<RefCell<Environment>>) -> Result<MObject> {
     match node {
         MNode::Prog(x) => {
             eval_program(x.stmts, env)
@@ -147,8 +152,9 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                 Stmt::Expression(expr) => eval(MNode::Expr(expr.expr), env),
                 Stmt::Block(blk_stmt) => eval_block_statements(blk_stmt.stmts, env),
                 Stmt::Let(let_stmt) => {
-                    let value = eval(MNode::Expr(let_stmt.value), env)?;
+                    let value = eval(MNode::Expr(let_stmt.value), env.clone())?;
                     if let MObject::Err(_) = value { return Ok(value); };
+                    let mut env = env.borrow_mut();
                     env.insert(let_stmt.name.value.clone(), value.clone());
 
                     Ok(value)
@@ -172,7 +178,7 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                     eval_prefix_expression(prefix.operator, right)
                 },
                 Expr::In(infix) => {
-                    let left = eval(MNode::Expr(*infix.left), env)?;
+                    let left = eval(MNode::Expr(*infix.left), env.clone())?;
                     if let MObject::Err(_) = left { return Ok(left); };
 
                     let right = eval(MNode::Expr(*infix.right), env)?;
@@ -198,7 +204,7 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                         return quote(func_call.args.get(0), env);
                     };
 
-                    let function = eval(MNode::Expr(*func_call.function), env)?;
+                    let function = eval(MNode::Expr(*func_call.function), env.clone())?;
                     if let MObject::Err(_) = function { return Ok(function); };
 
                     let mut args = eval_expressions(func_call.args, env)?;
@@ -234,7 +240,7 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
                     )
                 },
                 Expr::Index(i) => {
-                    let left = eval(MNode::Expr(*i.left), env)?;
+                    let left = eval(MNode::Expr(*i.left), env.clone())?;
                     if let MObject::Err(_) = left { return Ok(left); };
 
                     let index = eval(MNode::Expr(*i.index), env)?;
@@ -253,9 +259,9 @@ pub fn eval(node: MNode, env: &mut Environment) -> Result<MObject> {
     }
 }
 
-fn eval_program(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObject> {
+fn eval_program(stmts: Vec<Stmt>, env: Rc<RefCell<Environment>>) -> Result<MObject> {
     let mut result = if let Some(stmt) = stmts.get(0) {
-        eval(MNode::Stmt(stmt.clone()), env)?
+        eval(MNode::Stmt(stmt.clone()), env.clone())?
     } else {
         return Ok(NULL)
     };
@@ -267,7 +273,7 @@ fn eval_program(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObject> {
 
     for stmt in stmts.iter().skip(1) {
         // TODO: consider taking ownership and removing the stmts from the Vec
-        result = eval(MNode::Stmt(stmt.clone()), env)?;
+        result = eval(MNode::Stmt(stmt.clone()), env.clone())?;
 
         if let MObject::Return(retval) = result {
             return Ok(*retval.value);
@@ -280,9 +286,9 @@ fn eval_program(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObject> {
 
 }
 
-fn eval_block_statements(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObject> {
+fn eval_block_statements(stmts: Vec<Stmt>, env: Rc<RefCell<Environment>>) -> Result<MObject> {
     let mut result = if let Some(stmt) = stmts.get(0) {
-        eval(MNode::Stmt(stmt.clone()), env)?
+        eval(MNode::Stmt(stmt.clone()), env.clone())?
     } else {
         return Err(Error::new("No statements in statement list.".to_string()))
     };
@@ -294,7 +300,7 @@ fn eval_block_statements(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObj
 
     for stmt in stmts.iter().skip(1) {
         // TODO: consider taking ownership and removing the stmts from the Vec
-        result = eval(MNode::Stmt(stmt.clone()), env)?;
+        result = eval(MNode::Stmt(stmt.clone()), env.clone())?;
 
         if let MObject::Return(_) = result {
             return Ok(result);
@@ -306,11 +312,11 @@ fn eval_block_statements(stmts: Vec<Stmt>, env: &mut Environment) -> Result<MObj
     Ok(result)
 }
 
-fn eval_expressions(exprs: Vec<Expr>, env: &mut Environment) -> Result<Vec<MObject>> {
+fn eval_expressions(exprs: Vec<Expr>, env: Rc<RefCell<Environment>>) -> Result<Vec<MObject>> {
     let mut results = Vec::new();
 
     for expr in exprs {
-        let obj = eval(MNode::Expr(expr), env)?;
+        let obj = eval(MNode::Expr(expr), env.clone())?;
         if let MObject::Err(_) = obj { return Ok(vec![obj]); };
 
         results.push(obj);
@@ -323,12 +329,12 @@ fn apply_function(obj: MObject, args: &mut Vec<MObject>) -> Result<MObject> {
     if let MObject::Fn(f) = obj {
         let Function { params, body, env } = f;
 
-        let mut extended_env = match extend_function_env(params, args, env) {
+        let extended_env = match extend_function_env(params, args, env) {
             Ok(x) => x,
             Err(e) => return Ok(new_error(format!("{}", e))),
         };
 
-        let evaluated = eval(MNode::Stmt(Stmt::Block(body)), &mut extended_env)?;
+        let evaluated = eval(MNode::Stmt(Stmt::Block(body)), extended_env)?;
 
         if let MObject::Return(retval) = evaluated {
             Ok(*retval.value)
@@ -349,19 +355,22 @@ fn apply_function(obj: MObject, args: &mut Vec<MObject>) -> Result<MObject> {
     }
 }
 
-fn extend_function_env(params: Vec<Identifier>, args: &mut Vec<MObject>, env: Environment) -> Result<Environment> {
-    let mut env = Environment::enclose(env);
-    if params.len() != args.len() {
-        return Err(Error::new(format!("Expected {} parameters, got {}.", params.len(), args.len())));
-    };
-    args.reverse();
+fn extend_function_env(params: Vec<Identifier>, args: &mut Vec<MObject>, env: Rc<RefCell<Environment>>) -> Result<Rc<RefCell<Environment>>> {
+    let enclosed = Environment::enclose(env);
+    {
+        if params.len() != args.len() {
+            return Err(Error::new(format!("Expected {} parameters, got {}.", params.len(), args.len())));
+        };
+        args.reverse();
 
-    for param in params.iter() {
-        let arg = args.pop().unwrap();
-        env.insert(param.value.clone(), arg);
+        let mut env = enclosed.borrow_mut();
+        for param in params.iter() {
+            let arg = args.pop().unwrap();
+            env.insert(param.value.clone(), arg);
+        }
     }
 
-    Ok(env)
+    Ok(enclosed)
 }
 
 fn eval_prefix_expression(op: String, obj: MObject) -> Result<MObject> {
@@ -438,8 +447,8 @@ fn eval_string_infix_operator(left: String, op: String, right: String) -> Result
     Ok(result)
 }
 
-fn eval_if_expression(if_expr: IfExpression, env: &mut Environment) -> Result<MObject> {
-    let condition = eval(MNode::Expr(*if_expr.condition), env)?;
+fn eval_if_expression(if_expr: IfExpression, env: Rc<RefCell<Environment>>) -> Result<MObject> {
+    let condition = eval(MNode::Expr(*if_expr.condition), env.clone())?;
 
     if let MObject::Err(_) = condition {
         Ok(condition)
@@ -452,9 +461,10 @@ fn eval_if_expression(if_expr: IfExpression, env: &mut Environment) -> Result<MO
     }
 }
 
-fn eval_identifier_expression(ident: Identifier, env: &mut Environment) -> Result<MObject> {
+fn eval_identifier_expression(ident: Identifier, env: Rc<RefCell<Environment>>) -> Result<MObject> {
+    let env = env.borrow();
     if let Some(v) = env.get(&ident.value) {
-        Ok(v.clone())
+        Ok(v.as_ref().clone())
     } else {
         Ok(new_error(format!("identifier not found: {}", ident.value)))
     }
@@ -498,11 +508,11 @@ fn eval_array_index_expression(arr: MArray, index: i128) -> MObject {
     }
 }
 
-fn eval_hash_literal_expression(h: HashLiteral, env: &mut Environment) -> Result<MObject> {
+fn eval_hash_literal_expression(h: HashLiteral, env: Rc<RefCell<Environment>>) -> Result<MObject> {
     let mut pairs = HashMap::new();
 
     for (k_node, v_node) in h.pairs {
-        let key = eval(MNode::Expr(k_node), env)?;
+        let key = eval(MNode::Expr(k_node), env.clone())?;
         if let MObject::Err(_) = key { return Ok(key); };
 
         let hash_key = match key.clone() {
@@ -512,7 +522,7 @@ fn eval_hash_literal_expression(h: HashLiteral, env: &mut Environment) -> Result
             _ => return Ok(new_error(format!("unusable as hash key: {}", key))),
         };
 
-        let value = eval(MNode::Expr(v_node), env)?;
+        let value = eval(MNode::Expr(v_node), env.clone())?;
         if let MObject::Err(_) = value { return Ok(value); };
 
         let hash_value = HashPair { key, value };
@@ -529,7 +539,7 @@ fn eval_hash_literal_expression(h: HashLiteral, env: &mut Environment) -> Result
     )
 }
 
-fn quote(arg: Option<&Expr>, env: &mut Environment) -> Result<MObject> {
+fn quote(arg: Option<&Expr>, env: Rc<RefCell<Environment>>) -> Result<MObject> {
     let node = if let Some(expr) = arg {
         eval_unquote_calls(expr.clone(), env)
     } else {
@@ -545,9 +555,9 @@ fn quote(arg: Option<&Expr>, env: &mut Environment) -> Result<MObject> {
     )
 }
 
-fn eval_unquote_calls(node: Expr, env: &mut Environment) -> MNode {
+fn eval_unquote_calls(node: Expr, env: Rc<RefCell<Environment>>) -> MNode {
     // MNode::Expr(node)
-    crate::ast::modify(MNode::Expr(node), env, |node: MNode, env: &mut Environment| -> MNode {
+    crate::ast::modify(MNode::Expr(node), env, |node: MNode, env: Rc<RefCell<Environment>>| -> MNode {
         if !is_unquote_call(&node) { return node; };
 
         let call = match node {
@@ -626,9 +636,9 @@ mod tests {
         let program = parser.parse()?;
 
         check_parser_errors(parser)?;
-        let mut env = Environment::new();
+        let env = Environment::new();
 
-        eval(MNode::Prog(program), &mut env)
+        eval(MNode::Prog(program), env)
     }
 
     fn check_parser_errors<I: Iterator<Item = Result<Token>>>(p: Parser<I>) -> Result<()> {
@@ -909,6 +919,26 @@ mod tests {
     }
 
     #[test]
+    fn test_self_ref_closures() -> Result<()> {
+        let input = "
+            let fibonacci = fn(x) {
+                if (x == 0) {
+                    0
+                } else {
+                    if (x == 1) {
+                        return 1;
+                    } else {
+                        fibonacci(x - 1) + fibonacci(x - 2);
+                    }
+                }
+            };
+            fibonacci(6);
+        ".to_string();
+
+        test_integer_obj(8, test_eval(input)?)
+    }
+
+    #[test]
     fn test_string_literal() -> Result<()> {
         let input = "\"Hello World!\"".to_string();
         let evaluated = test_eval(input)?;
@@ -1179,17 +1209,21 @@ mod tests {
         let mut program = parser.parse()?;
 
         check_parser_errors(parser)?;
-        let mut env = Environment::new();
+        let env = Environment::new();
 
-        define_macros(&mut program, &mut env);
+        define_macros(&mut program, env.clone());
 
         assert_eq!(2, program.stmts.len());
+        let env = env.borrow();
 
         assert!(env.get(&"number".to_string()).is_none());
         assert!(env.get(&"function".to_string()).is_none());
         assert!(env.get(&"mymacro".to_string()).is_some());
-        let mymacro = if let Some(MObject::Macro(m)) = env.get(&"mymacro".to_string()) {
-            m
+        let mymacro = if let Some(m) = env.get(&"mymacro".to_string()) {
+            match m.as_ref() {
+                MObject::Macro(x) => x.clone(),
+                x => panic!("mymacro is {}", x),
+            }
         } else {
             panic!("mymacro is undefined");
         };
@@ -1244,10 +1278,10 @@ mod tests {
             let mut program = parser.parse()?;
 
             check_parser_errors(parser)?;
-            let mut env = Environment::new();
+            let env = Environment::new();
 
-            define_macros(&mut program, &mut env);
-            let expanded = expand_macros(program, &mut env);
+            define_macros(&mut program, env.clone());
+            let expanded = expand_macros(program, env);
             assert_eq!(tt.1, format!("{}", expanded));
         };
 

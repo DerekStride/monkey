@@ -1,4 +1,4 @@
-use std::io::{self, Read, Write, BufRead, BufReader};
+use std::{io::{self, Read, Write, BufRead, BufReader}, cell::RefCell, rc::Rc};
 
 use crate::{
     lexer::lexer::Lexer,
@@ -41,7 +41,7 @@ impl State {
 
 #[derive(Debug)]
 enum Env {
-    Eval(Environment),
+    Eval(Rc<RefCell<Environment>>),
     Vm(State),
 }
 
@@ -96,7 +96,7 @@ impl Engine {
 
     fn eval_runner(node: MNode, env: &mut Env) -> Result<MObject> {
         if let Env::Eval(environment) = env {
-            evaluator::eval(node, environment)
+            evaluator::eval(node, environment.to_owned())
         } else {
             Err(Error::new(format!("wanted: Env::Eval, got: {:?}", env)))
         }
@@ -108,7 +108,7 @@ const PROMPT: &[u8; 4] = b">>> ";
 pub fn start<I: Read, O: Write>(input: I, output: &mut O, engine: &mut Engine) -> Result<()> {
     let mut bufio = BufReader::new(input);
     let mut buf = String::new();
-    let mut macro_env = Environment::new();
+    let macro_env = Environment::new();
 
     loop {
         output.write_all(PROMPT)?;
@@ -124,8 +124,8 @@ pub fn start<I: Read, O: Write>(input: I, output: &mut O, engine: &mut Engine) -
             continue;
         };
 
-        evaluator::define_macros(&mut program, &mut macro_env);
-        let expanded = evaluator::expand_macros(program, &mut macro_env);
+        evaluator::define_macros(&mut program, macro_env.clone());
+        let expanded = evaluator::expand_macros(program, macro_env.clone());
 
         let evaluated = engine.run(expanded)?;
 
