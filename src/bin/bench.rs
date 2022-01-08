@@ -1,3 +1,5 @@
+#![feature(div_duration)]
+
 use monkey::{
     ast::*,
     error::{Result, Error},
@@ -30,7 +32,7 @@ let fibonacci = fn(x) {
     }
   }
 };
-fibonacci(15);
+fibonacci(27);
 "#;
 
 fn main() -> Result<()> {
@@ -44,24 +46,23 @@ fn main() -> Result<()> {
 
     let start = Instant::now();
     vm.run()?;
+    println!("{}", vm.stack_top().unwrap());
     let elapsed_vm = start.elapsed();
     println!("Vm:");
-    println!("\t{}s", elapsed_vm.as_secs());
-    println!("\t{}ms", elapsed_vm.as_millis());
-    println!("\t{}us", elapsed_vm.as_micros());
-    println!("\t{}ns", elapsed_vm.as_nanos());
+    println!("\t{}.{}s", elapsed_vm.as_secs(), elapsed_vm.subsec_micros());
 
     let start = Instant::now();
-    eval.run(program_eval)?;
+    println!("{}", eval.run(program_eval)?);
     let elapsed_eval = start.elapsed();
     println!("Eval:");
-    println!("\t{}s", elapsed_eval.as_secs());
-    println!("\t{}ms", elapsed_eval.as_millis());
-    println!("\t{}us", elapsed_eval.as_micros());
-    println!("\t{}ns", elapsed_eval.as_nanos());
+    println!("\t{}.{}s", elapsed_eval.as_secs(), elapsed_eval.subsec_micros());
 
-    println!("Vm / Eval:");
-    println!("\t{}", elapsed_vm.as_nanos() / elapsed_eval.as_nanos());
+    if elapsed_vm < elapsed_eval {
+        println!("Vm is {:.2}x faster than Eval", elapsed_eval.div_duration_f64(elapsed_vm))
+    } else {
+        println!("Eval is {:.2}x faster than Vm", elapsed_vm.div_duration_f64(elapsed_eval))
+    };
+
     Ok(())
 }
 
