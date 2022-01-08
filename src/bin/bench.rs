@@ -32,7 +32,7 @@ let fibonacci = fn(x) {
     }
   }
 };
-fibonacci(27);
+fibonacci(28);
 "#;
 
 fn main() -> Result<()> {
@@ -44,29 +44,50 @@ fn main() -> Result<()> {
     compiler.compile(program_vm)?;
     let mut vm = Vm::new(compiler.bytecode());
 
+    let func_str = INPUT
+        .lines()
+        .last()
+        .unwrap();
+    println!("Running:\n{}", func_str);
+
+    let start = Instant::now();
+    let result = fibonacci(28);
+    let elapsed_eval = start.elapsed();
+    println!("\nRust\nResult: {}", result);
+    println!("Duration: {}.{}s", elapsed_eval.as_secs(), elapsed_eval.subsec_micros());
+
     let start = Instant::now();
     vm.run()?;
-    println!("{}", vm.stack_top().unwrap());
     let elapsed_vm = start.elapsed();
-    println!("Vm:");
-    println!("\t{}.{}s", elapsed_vm.as_secs(), elapsed_vm.subsec_micros());
+    println!("\nVm\nResult: {}", vm.stack_top().unwrap());
+    println!("Duration: {}.{}s", elapsed_vm.as_secs(), elapsed_vm.subsec_micros());
 
     let start = Instant::now();
-    println!("{}", eval.run(program_eval)?);
+    let result = eval.run(program_eval)?;
     let elapsed_eval = start.elapsed();
-    println!("Eval:");
-    println!("\t{}.{}s", elapsed_eval.as_secs(), elapsed_eval.subsec_micros());
+    println!("\nEval\nResult: {}", result);
+    println!("Duration: {}.{}s", elapsed_eval.as_secs(), elapsed_eval.subsec_micros());
 
     if elapsed_vm < elapsed_eval {
-        println!("Vm is {:.2}x faster than Eval", elapsed_eval.div_duration_f64(elapsed_vm))
+        println!("\nVm is {:.2}x faster than Eval", elapsed_eval.div_duration_f64(elapsed_vm))
     } else {
-        println!("Eval is {:.2}x faster than Vm", elapsed_vm.div_duration_f64(elapsed_eval))
+        println!("\nEval is {:.2}x faster than Vm", elapsed_vm.div_duration_f64(elapsed_eval))
     };
 
     Ok(())
 }
 
-pub fn parse(input: String) -> Result<Program> {
+fn fibonacci(x: u64) -> u64 {
+    if x == 0 {
+        0
+    } else if x == 1 {
+        1
+    } else {
+        fibonacci(x - 1) + fibonacci(x - 2)
+    }
+}
+
+fn parse(input: String) -> Result<Program> {
     let lexer = Lexer::new(input.as_bytes().bytes().peekable())?;
     let mut parser = Parser::new(lexer.peekable())?;
     let program = parser.parse()?;
@@ -77,7 +98,7 @@ pub fn parse(input: String) -> Result<Program> {
 }
 
 
-pub fn check_parser_errors<I: Iterator<Item = Result<Token>>>(p: Parser<I>) -> Result<()> {
+fn check_parser_errors<I: Iterator<Item = Result<Token>>>(p: Parser<I>) -> Result<()> {
     let errors = p.errors();
 
     if errors.is_empty() { return Ok(()); };

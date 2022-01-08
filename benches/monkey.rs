@@ -28,7 +28,7 @@ mod tests {
             lexer::Lexer,
             token::Token,
         },
-        compiler::compiler::Compiler,
+        compiler::{compiler::Compiler, vm::Vm},
         parser::parser::Parser,
         repl::Engine,
     };
@@ -62,18 +62,19 @@ mod tests {
     }
 
     #[bench]
-    fn bench_parse(b: &mut Bencher) -> Result<()> {
-        b.iter(|| {
-            let program = MNode::Prog(parse(INPUT.to_string()).unwrap());
-            let mut compiler = Compiler::new();
-            assert!(compiler.compile(program).is_ok())
-        });
+    fn bench_compile(b: &mut Bencher) -> Result<()> {
+        let program = MNode::Prog(parse(INPUT.to_string()).unwrap());
+        let mut compiler = Compiler::new();
+
+        b.iter(||
+            assert!(compiler.compile(program.clone()).is_ok())
+        );
 
         Ok(())
     }
 
     #[bench]
-    fn bench_compile(b: &mut Bencher) -> Result<()> {
+    fn bench_parse(b: &mut Bencher) -> Result<()> {
         b.iter(|| {
             parse(INPUT.to_string())
         });
@@ -83,23 +84,46 @@ mod tests {
 
     #[bench]
     fn bench_eval(b: &mut Bencher) -> Result<()> {
-        b.iter(|| {
-            let program = MNode::Prog(parse(INPUT.to_string())?);
-            let mut engine = Engine::eval();
-            engine.run(program)
-        });
+        let program = MNode::Prog(parse(INPUT.to_string())?);
+        let mut engine = Engine::eval();
+
+        b.iter(||
+            engine.run(program.clone())
+        );
 
         Ok(())
     }
 
     #[bench]
     fn bench_vm(b: &mut Bencher) -> Result<()> {
+        let program = MNode::Prog(parse(INPUT.to_string()).unwrap());
+        let mut compiler = Compiler::new();
+        compiler.compile(program)?;
+
         b.iter(|| {
-            let program = MNode::Prog(parse(INPUT.to_string())?);
-            let mut engine = Engine::vm();
-            engine.run(program)
+           let mut vm = Vm::new(compiler.bytecode());
+            assert!(vm.run().is_ok());
         });
 
         Ok(())
+    }
+
+    #[bench]
+    fn bench_rust(b: &mut Bencher) -> Result<()> {
+        b.iter(||
+            fibonacci(15)
+        );
+
+        Ok(())
+    }
+
+    fn fibonacci(x: u64) -> u64 {
+        if x == 0 {
+            0
+        } else if x == 1 {
+            1
+        } else {
+            fibonacci(x - 1) + fibonacci(x - 2)
+        }
     }
 }
