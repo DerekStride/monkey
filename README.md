@@ -48,3 +48,7 @@ Use the following commands to generate flamegraphs with `cargo flamegraph`
 cargo flamegraph --dev --bin=flamegraph --root -o tmp/flamegraph-vm.svg -- --engine=vm
 cargo flamegraph --dev --bin=flamegraph --root -o tmp/flamegraph-eval.svg -- --engine=eval
 ```
+### Flamegraph for the Vm engine
+
+<img width="1196" alt="Screen Shot 2022-01-08 at 3 04 52 PM" src="https://user-images.githubusercontent.com/6456191/148658249-64810578-aea0-49c9-b1c3-2349364d3ab4.png">
+
